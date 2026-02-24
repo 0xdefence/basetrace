@@ -1,12 +1,10 @@
 from fastapi import APIRouter
 
+from api.services.label_service import get_labels
+
 router = APIRouter()
 
 
 @router.get("/{address}")
 def labels(address: str):
-    return {
-        "address": address,
-        "labels": [],
-        "note": "scaffold response; wire label engine in labels/rules.py",
-    }
+    return get_labels(address)

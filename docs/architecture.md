@@ -15,3 +15,10 @@ RPC -> ingest blocks/logs -> normalize tx/transfers -> store -> compute labels/e
 - Confidence on every label
 - Keep alerts high-signal
 - Build for Base first, multi-chain later
+- Use provider/self-hosted RPC for production; `mainnet.base.org` is rate-limited
+
+## Base network references
+- Mainnet chain ID: `8453`
+- Public RPC: `https://mainnet.base.org` (rate-limited)
+- Public explorer: `https://base.blockscout.com/`
+- Known Base system contracts can be pre-labeled (bridge/treasury infra)
