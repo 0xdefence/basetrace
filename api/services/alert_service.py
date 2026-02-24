@@ -1,6 +1,12 @@
 from api.services.db import get_conn
 
 
+BRIDGES = {
+    "0x4200000000000000000000000000000000000010",  # L2StandardBridge
+    "0x4200000000000000000000000000000000000007",  # L2CrossDomainMessenger
+}
+
+
 def recent_alerts(limit: int = 20):
     """24h vs prior-24h delta alerting.
 
@@ -144,6 +150,55 @@ def recent_alerts(limit: int = 20):
                     },
                 }
             )
+
+        # Bridge route anomalies: counterparties hitting bridge infra now vs previous window
+        cur.execute(
+            """
+            WITH now_w AS (
+              SELECT CASE WHEN from_address = ANY(%s) THEN to_address ELSE from_address END AS cp,
+                     COUNT(*) AS c
+              FROM transactions
+              WHERE timestamp >= now() - interval '24 hours'
+                AND (from_address = ANY(%s) OR to_address = ANY(%s))
+              GROUP BY cp
+            ), prev_w AS (
+              SELECT CASE WHEN from_address = ANY(%s) THEN to_address ELSE from_address END AS cp,
+                     COUNT(*) AS c
+              FROM transactions
+              WHERE timestamp >= now() - interval '48 hours'
+                AND timestamp < now() - interval '24 hours'
+                AND (from_address = ANY(%s) OR to_address = ANY(%s))
+              GROUP BY cp
+            )
+            SELECT n.cp, n.c AS now_count, COALESCE(p.c,0) AS prev_count
+            FROM now_w n
+            LEFT JOIN prev_w p ON p.cp = n.cp
+            WHERE n.cp IS NOT NULL
+            ORDER BY (n.c - COALESCE(p.c,0)) DESC
+            LIMIT %s
+            """,
+            (list(BRIDGES), list(BRIDGES), list(BRIDGES), list(BRIDGES), list(BRIDGES), list(BRIDGES), max(limit, 30)),
+        )
+        for cp, now_c, prev_c in cur.fetchall():
+            baseline = max(1, int(prev_c or 0))
+            ratio = float(now_c) / baseline
+            delta = int(now_c) - int(prev_c or 0)
+            if ratio >= 4.0 and delta >= 15:
+                alerts.append(
+                    {
+                        "type": "anomalous_bridge_path",
+                        "address": cp,
+                        "severity": "high" if ratio >= 8 else "medium",
+                        "confidence": min(0.99, 0.55 + min(ratio, 10) / 12),
+                        "evidence": {
+                            "window": "24h_vs_prev24h",
+                            "bridge_counterparty_now": int(now_c),
+                            "bridge_counterparty_prev": int(prev_c or 0),
+                            "ratio": round(ratio, 2),
+                            "delta": delta,
+                        },
+                    }
+                )
 
     # sort by confidence desc then severity
     sev_rank = {"high": 3, "medium": 2, "low": 1}

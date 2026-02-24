@@ -2,6 +2,26 @@ from api.services.db import get_conn
 from labels.rules import label_address
 
 
+def persist_labels(address: str, labels: list[dict]):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM labels WHERE address = %s", (address.lower(),))
+        for lb in labels:
+            cur.execute(
+                """
+                INSERT INTO labels(address, label, confidence, evidence)
+                VALUES(%s, %s, %s, %s::jsonb)
+                """,
+                (address.lower(), lb.get("label"), float(lb.get("confidence", 0)), json_dumps(lb.get("evidence", {}))),
+            )
+
+
+def json_dumps(obj: dict) -> str:
+    import json
+
+    return json.dumps(obj or {})
+
+
 def get_features(address: str) -> dict:
     addr = address.lower()
     with get_conn() as conn:
@@ -34,6 +54,8 @@ def get_features(address: str) -> dict:
 
 
 def get_labels(address: str):
-    features = get_features(address)
-    labels = label_address(address, features)
-    return {"address": address.lower(), "features": features, "labels": labels}
+    addr = address.lower()
+    features = get_features(addr)
+    labels = label_address(addr, features)
+    persist_labels(addr, labels)
+    return {"address": addr, "features": features, "labels": labels}

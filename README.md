@@ -37,6 +37,7 @@ Services:
 - `GET /health`
 - `GET /graph/neighbors/{address}`
 - `GET /labels/{address}`
+- `GET /entity/{address}`
 - `GET /alerts/recent`
 
 ## Roadmap
