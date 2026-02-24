@@ -1,0 +1,56 @@
+CREATE TABLE IF NOT EXISTS addresses (
+  address TEXT PRIMARY KEY,
+  first_seen_block BIGINT,
+  last_seen_block BIGINT,
+  tx_count BIGINT DEFAULT 0,
+  contracts_deployed BIGINT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+  tx_hash TEXT PRIMARY KEY,
+  block_number BIGINT NOT NULL,
+  from_address TEXT,
+  to_address TEXT,
+  value_wei NUMERIC,
+  success BOOLEAN,
+  timestamp TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS token_transfers (
+  id BIGSERIAL PRIMARY KEY,
+  tx_hash TEXT,
+  token_address TEXT,
+  from_address TEXT,
+  to_address TEXT,
+  amount NUMERIC,
+  block_number BIGINT,
+  timestamp TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS labels (
+  id BIGSERIAL PRIMARY KEY,
+  address TEXT NOT NULL,
+  label TEXT NOT NULL,
+  confidence NUMERIC NOT NULL,
+  evidence JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS edges (
+  id BIGSERIAL PRIMARY KEY,
+  src_address TEXT NOT NULL,
+  dst_address TEXT NOT NULL,
+  tx_count BIGINT DEFAULT 0,
+  total_value_wei NUMERIC DEFAULT 0,
+  window_start TIMESTAMPTZ,
+  window_end TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tx_block ON transactions(block_number);
+CREATE INDEX IF NOT EXISTS idx_transfer_block ON token_transfers(block_number);
+CREATE INDEX IF NOT EXISTS idx_labels_address ON labels(address);
+CREATE INDEX IF NOT EXISTS idx_edges_src_dst ON edges(src_address, dst_address);
