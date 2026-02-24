@@ -9,9 +9,9 @@ BaseTrace maps address relationships, fund flows, and suspicious concentration p
 - Entity labeling with confidence scores
 - Flow graph API and UI-ready endpoints
 - Alerting for:
-  - sudden fan-out/fan-in
+  - sudden fan-out/fan-in (24h vs previous 24h delta)
   - high-centrality new nodes
-  - anomalous bridge transfer paths
+  - anomalous bridge transfer paths (next iteration)
 
 ## Quickstart
 ```bash
@@ -21,6 +21,17 @@ source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn api.main:app --reload --port 8080
 ```
+
+## Docker Compose
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Services:
+- API: `http://localhost:8080`
+- Postgres: `localhost:5432`
+- Ingestor worker: continuous block + log ingestion
 
 ## Endpoints (v0)
 - `GET /health`

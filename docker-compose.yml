@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: basetrace-postgres
+    environment:
+      POSTGRES_DB: basetrace
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/schema_v1.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d basetrace"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    container_name: basetrace-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/basetrace
+      BASE_RPC_URL: ${BASE_RPC_URL:-https://mainnet.base.org}
+    ports:
+      - "8080:8080"
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8080"]
+
+  ingestor:
+    build: .
+    container_name: basetrace-ingestor
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/basetrace
+      BASE_RPC_URL: ${BASE_RPC_URL:-https://mainnet.base.org}
+      INGEST_CONFIRMATIONS: ${INGEST_CONFIRMATIONS:-3}
+      INGEST_START_BLOCK: ${INGEST_START_BLOCK:-0}
+    command: ["python", "ingest/base_ingest.py"]
+
+volumes:
+  pgdata:
