@@ -66,6 +66,64 @@ def failures_runbook(limit: int = 100):
     return {"limit": limit, "summary": summary, "failures": items}
 
 
+def retry_failure(failure_id: int):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ingest_failures
+            SET status='open', retry_count=retry_count+1, updated_at=now()
+            WHERE id=%s
+            RETURNING id, stage, start_block, end_block, error, retry_count, status, created_at, updated_at
+            """,
+            (failure_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    i, stage, s, e, err, r, st, created, updated = row
+    return {
+        "id": int(i),
+        "stage": stage,
+        "start_block": int(s) if s is not None else None,
+        "end_block": int(e) if e is not None else None,
+        "error": err,
+        "retry_count": int(r or 0),
+        "status": st,
+        "created_at": created.isoformat() if created else None,
+        "updated_at": updated.isoformat() if updated else None,
+    }
+
+
+def resolve_failure(failure_id: int):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE ingest_failures
+            SET status='resolved', updated_at=now()
+            WHERE id=%s
+            RETURNING id, stage, start_block, end_block, error, retry_count, status, created_at, updated_at
+            """,
+            (failure_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    i, stage, s, e, err, r, st, created, updated = row
+    return {
+        "id": int(i),
+        "stage": stage,
+        "start_block": int(s) if s is not None else None,
+        "end_block": int(e) if e is not None else None,
+        "error": err,
+        "retry_count": int(r or 0),
+        "status": st,
+        "created_at": created.isoformat() if created else None,
+        "updated_at": updated.isoformat() if updated else None,
+    }
+
+
 def alerts_runbook():
     with get_conn() as conn:
         cur = conn.cursor()

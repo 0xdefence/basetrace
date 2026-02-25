@@ -68,6 +68,16 @@ CREATE TABLE IF NOT EXISTS ingest_failures (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS alert_thresholds (
+  rule_type TEXT PRIMARY KEY,
+  min_ratio NUMERIC,
+  min_delta INT,
+  min_count INT,
+  cooldown_hours INT DEFAULT 6,
+  enabled BOOLEAN DEFAULT TRUE,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS alerts (
   id BIGSERIAL PRIMARY KEY,
   type TEXT NOT NULL,
