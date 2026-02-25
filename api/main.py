@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from api.routes.graph import router as graph_router
 from api.routes.labels import router as labels_router
@@ -13,6 +16,10 @@ from api.routes.risk import router as risk_router
 from api.routes.dashboard import router as dashboard_router
 
 app = FastAPI(title="BaseTrace API", version="0.1.0")
+
+WEB_DIR = Path(__file__).resolve().parents[1] / "web"
+if WEB_DIR.exists():
+    app.mount("/ui", StaticFiles(directory=str(WEB_DIR), html=True), name="ui")
 
 
 @app.get("/health")

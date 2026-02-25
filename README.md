@@ -30,6 +30,7 @@ docker compose up --build
 
 Services:
 - API: `http://localhost:8080`
+- UI: `http://localhost:8080/ui`
 - Postgres: `localhost:5432`
 - Ingestor worker: continuous block + log ingestion
 
