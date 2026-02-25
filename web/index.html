@@ -29,14 +29,35 @@
 
     <section class="panel">
       <div class="panel-head"><h2>Runbook Ops</h2></div>
+      <div class="preset-row">
+        <button class="secondary" data-preset="conservative">Conservative</button>
+        <button class="secondary" data-preset="base">Base</button>
+        <button class="secondary" data-preset="aggressive">Aggressive</button>
+      </div>
       <div id="runbookOps"></div>
+      <div id="presetStatus" class="muted tiny"></div>
     </section>
   </main>
 
   <section class="grid bottom">
+    <section class="panel">
+      <div class="panel-head"><h2>Dead-letter Queue</h2></div>
+      <div id="failures"></div>
+    </section>
     <section class="panel"><div class="panel-head"><h2>Top Types (24h)</h2></div><div id="topTypes"></div></section>
+  </section>
+
+  <section class="grid bottom single">
     <section class="panel"><div class="panel-head"><h2>Top Addresses (24h)</h2></div><div id="topAddresses"></div></section>
   </section>
+
+  <aside id="riskDrawer" class="drawer hidden" aria-live="polite">
+    <div class="drawer-head">
+      <h3>Entity Risk</h3>
+      <button id="closeDrawer" class="secondary">Close</button>
+    </div>
+    <div id="riskContent" class="muted">Select an address to load risk.</div>
+  </aside>
 
   <script src="./app.js"></script>
 </body>
