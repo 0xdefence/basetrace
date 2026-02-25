@@ -59,3 +59,44 @@ def runbook_threshold_update(
 ):
     row = update_threshold(rule_type, min_ratio, min_delta, min_count, cooldown_hours, enabled)
     return {"rule_type": rule_type, "config": row}
+
+
+@router.post("/threshold-presets/{preset}")
+def runbook_threshold_preset(preset: str):
+    p = preset.lower()
+    presets = {
+        "conservative": {
+            "fan_out_spike": {"min_ratio": 5.0, "min_delta": 35, "min_count": 40, "cooldown_hours": 8, "enabled": True},
+            "fan_in_spike": {"min_ratio": 5.0, "min_delta": 35, "min_count": 40, "cooldown_hours": 8, "enabled": True},
+            "new_high_centrality_node": {"min_count": 500, "cooldown_hours": 8, "enabled": True},
+            "anomalous_bridge_path": {"min_ratio": 6.0, "min_delta": 25, "cooldown_hours": 8, "enabled": True},
+        },
+        "base": {
+            "fan_out_spike": {"min_ratio": 3.0, "min_delta": 20, "min_count": 25, "cooldown_hours": 6, "enabled": True},
+            "fan_in_spike": {"min_ratio": 3.0, "min_delta": 20, "min_count": 25, "cooldown_hours": 6, "enabled": True},
+            "new_high_centrality_node": {"min_count": 300, "cooldown_hours": 6, "enabled": True},
+            "anomalous_bridge_path": {"min_ratio": 4.0, "min_delta": 15, "cooldown_hours": 6, "enabled": True},
+        },
+        "aggressive": {
+            "fan_out_spike": {"min_ratio": 2.0, "min_delta": 10, "min_count": 15, "cooldown_hours": 3, "enabled": True},
+            "fan_in_spike": {"min_ratio": 2.0, "min_delta": 10, "min_count": 15, "cooldown_hours": 3, "enabled": True},
+            "new_high_centrality_node": {"min_count": 180, "cooldown_hours": 3, "enabled": True},
+            "anomalous_bridge_path": {"min_ratio": 2.5, "min_delta": 8, "cooldown_hours": 3, "enabled": True},
+        },
+    }
+    cfg = presets.get(p)
+    if not cfg:
+        raise HTTPException(status_code=400, detail="unknown preset")
+
+    applied = {}
+    for rule_type, vals in cfg.items():
+        applied[rule_type] = update_threshold(
+            rule_type,
+            vals.get("min_ratio"),
+            vals.get("min_delta"),
+            vals.get("min_count"),
+            vals.get("cooldown_hours"),
+            vals.get("enabled"),
+        )
+
+    return {"preset": p, "applied": applied}
