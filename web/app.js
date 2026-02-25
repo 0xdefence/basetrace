@@ -164,9 +164,35 @@ function renderTaxonomyMap(labelsMap){
 }
 
 async function loadFlowGraph(address) {
-  if (!address) return renderFlowGraph({nodes:[],edges:[]}, '');
-  const data = await jfetch(`/graph/neighbors/${address}?limit=30`);
-  renderFlowGraph(data, address);
+  const cleaned = (address || '').trim();
+  if (!cleaned) {
+    document.getElementById('graphMeta').textContent = 'Enter an address, then click Load.';
+    return renderFlowGraph({nodes:[],edges:[]}, '');
+  }
+  document.getElementById('graphMeta').textContent = `loading ${shortAddr(cleaned)}...`;
+  const data = await jfetch(`/graph/neighbors/${cleaned}?limit=30`);
+  renderFlowGraph(data, cleaned);
+}
+
+async function loadKnownGraph() {
+  const known = [
+    '0x4200000000000000000000000000000000000010',
+    '0x4200000000000000000000000000000000000007',
+    '0x4200000000000000000000000000000000000011',
+    '0x4200000000000000000000000000000000000019',
+    '0x420000000000000000000000000000000000001a',
+    '0x4200000000000000000000000000000000000006'
+  ];
+  for (const a of known) {
+    try {
+      await loadFlowGraph(a);
+      document.getElementById('graphAddress').value = a;
+      return;
+    } catch (_) {
+      // try next known address
+    }
+  }
+  document.getElementById('graphMeta').textContent = 'Known addresses loaded but no neighbor data yet. Let ingest warm up.';
 }
 
 async function loadTaxonomy() {
@@ -217,7 +243,11 @@ async function openRisk(address) { if (!address) return; const data = await jfet
 function bindActions() {
   document.getElementById('refreshBtn').addEventListener('click', () => runSafe(refresh));
   document.getElementById('closeDrawer').addEventListener('click', () => document.getElementById('riskDrawer').classList.add('hidden'));
-  document.getElementById('graphLoadBtn').addEventListener('click', () => runSafe(() => loadFlowGraph(document.getElementById('graphAddress').value.trim())));
+  document.getElementById('graphLoadBtn').addEventListener('click', () => runSafe(() => loadFlowGraph(document.getElementById('graphAddress').value)));
+  document.getElementById('graphLoadKnownBtn').addEventListener('click', () => runSafe(loadKnownGraph));
+  document.getElementById('graphAddress').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runSafe(() => loadFlowGraph(document.getElementById('graphAddress').value));
+  });
 
   document.body.addEventListener('click', async (e) => {
     const t = e.target;
@@ -239,6 +269,7 @@ async function runSafe(fn) {
 }
 
 bindActions();
+document.getElementById('graphMeta').textContent = 'Graph controls ready.';
 runSafe(async () => {
   await Promise.all([refresh(), loadTaxonomy()]);
 });
