@@ -8,6 +8,7 @@ from api.routes.search import router as search_router
 from api.routes.cluster import router as cluster_router
 from api.routes.metrics import router as metrics_router
 from api.routes.alerts_actions import router as alerts_actions_router
+from api.routes.runbook import router as runbook_router
 
 app = FastAPI(title="BaseTrace API", version="0.1.0")
 
@@ -25,3 +26,4 @@ app.include_router(entity_router, prefix="/entity", tags=["entity"])
 app.include_router(search_router, prefix="/search", tags=["search"])
 app.include_router(cluster_router, prefix="/cluster", tags=["cluster"])
 app.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
+app.include_router(runbook_router, prefix="/runbook", tags=["runbook"])

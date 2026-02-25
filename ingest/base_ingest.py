@@ -36,7 +36,7 @@ def rpc_call(client: httpx.Client, rpc_urls: list[str], method: str, params: lis
                 data = r.json()
                 if "error" in data:
                     raise RuntimeError(f"RPC {method} error: {data['error']}")
-                return data.get("result")
+                return data.get("result"), rpc_url, attempt
             except Exception as e:
                 last_err = e
                 time.sleep(min(5, 0.6 * (2**attempt)))
@@ -64,16 +64,20 @@ def get_last_block(conn) -> int:
     return int(row[0]) if row and row[0] else -1
 
 
-def set_last_block(conn, block_number: int):
+def set_state(conn, key: str, value: str):
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO ingest_state(key, value, updated_at)
-        VALUES('last_block', %s, now())
+        VALUES(%s, %s, now())
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
         """,
-        (str(block_number),),
+        (key, value),
     )
+
+
+def set_last_block(conn, block_number: int):
+    set_state(conn, "last_block", str(block_number))
 
 
 def upsert_address(cur, address: str, block_number: int, tx_inc: int = 0, deploy_inc: int = 0):
@@ -96,7 +100,7 @@ def upsert_address(cur, address: str, block_number: int, tx_inc: int = 0, deploy
 
 def ingest_block(conn, client, rpc_urls: list[str], block_number: int):
     block_hex = hex(block_number)
-    block = rpc_call(client, rpc_urls, "eth_getBlockByNumber", [block_hex, True])
+    block, rpc_used, rpc_attempt = rpc_call(client, rpc_urls, "eth_getBlockByNumber", [block_hex, True])
     if not block:
         return 0, 0
 
@@ -140,12 +144,12 @@ def ingest_block(conn, client, rpc_urls: list[str], block_number: int):
         tx_count += 1
 
     # Pull Transfer logs for this block (chunk-ready shape)
-    logs = rpc_call(
+    logs, rpc_used_logs, rpc_attempt_logs = rpc_call(
         client,
         rpc_urls,
         "eth_getLogs",
         [{"fromBlock": block_hex, "toBlock": block_hex, "topics": [TRANSFER_TOPIC]}],
-    ) or []
+    ) or ([], rpc_used, rpc_attempt)
 
     transfer_count = 0
     for lg in logs:
@@ -169,6 +173,11 @@ def ingest_block(conn, client, rpc_urls: list[str], block_number: int):
         transfer_count += 1
 
     set_last_block(conn, block_number)
+    set_state(conn, "current_rpc", rpc_used)
+    set_state(conn, "last_rpc_attempt", str(rpc_attempt))
+    set_state(conn, "last_logs_rpc", rpc_used_logs)
+    set_state(conn, "last_logs_rpc_attempt", str(rpc_attempt_logs))
+    set_state(conn, "last_error", "")
     conn.commit()
     return tx_count, transfer_count
 
@@ -190,19 +199,26 @@ def run_ingest_loop():
     with httpx.Client() as client:
         while True:
             try:
-                head = h2i(rpc_call(client, rpc_urls, "eth_blockNumber", []))
+                head_hex, head_rpc, head_attempt = rpc_call(client, rpc_urls, "eth_blockNumber", [])
+                head = h2i(head_hex)
                 safe_head = max(0, head - confirmations)
                 last = get_last_block(conn)
                 nxt = max(start_block_env, last + 1)
 
+                set_state(conn, "head_rpc", head_rpc)
+                set_state(conn, "head_rpc_attempt", str(head_attempt))
+
                 if nxt > safe_head:
                     print(f"[ingest] up-to-date last={last} safe_head={safe_head}")
+                    conn.commit()
                     time.sleep(5)
                     continue
 
                 txc, trc = ingest_block(conn, client, rpc_urls, nxt)
                 print(f"[ingest] block={nxt} tx={txc} transfers={trc}")
             except Exception as e:
+                set_state(conn, "last_error", str(e)[:800])
+                conn.commit()
                 print(f"[ingest] error: {e}")
                 time.sleep(3)
 

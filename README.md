@@ -36,6 +36,7 @@ Services:
 ## Endpoints (v0)
 - `GET /health`
 - `GET /metrics`
+- `GET /runbook/ingest`
 - `GET /graph/neighbors/{address}`
 - `GET /labels/{address}`
 - `GET /entity/{address}`
