@@ -47,7 +47,18 @@
     <section class="panel"><div class="panel-head"><h2>Top Types (24h)</h2></div><div id="topTypes"></div></section>
   </section>
 
-  <section class="grid bottom single">
+  <section class="grid bottom">
+    <section class="panel">
+      <div class="panel-head split">
+        <h2>Flow Graph (neighbors)</h2>
+        <div class="inline-actions">
+          <input id="graphAddress" placeholder="0x..." />
+          <button id="graphLoadBtn" class="secondary">Load</button>
+        </div>
+      </div>
+      <svg id="graphSvg" viewBox="0 0 760 340" role="img" aria-label="Flow graph"></svg>
+      <div id="graphMeta" class="muted tiny"></div>
+    </section>
     <section class="panel"><div class="panel-head"><h2>Top Addresses (24h)</h2></div><div id="topAddresses"></div></section>
   </section>
 

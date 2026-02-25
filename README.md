@@ -30,7 +30,7 @@ docker compose up --build
 
 Services:
 - API: `http://localhost:8080`
-- UI: `http://localhost:8080/ui`
+- UI: `http://localhost:8080/ui` (includes dashboard + neighbors flow graph panel)
 - Postgres: `localhost:5432`
 - Ingestor worker: continuous block + log ingestion
 
@@ -51,6 +51,7 @@ INGEST_REPLAY_MODE=1 docker compose up ingestor
 - `POST /runbook/thresholds/{rule_type}`
 - `POST /runbook/threshold-presets/{conservative|base|aggressive}`
 - `GET /graph/neighbors/{address}`
+- `GET /labels/taxonomy`
 - `GET /labels/{address}`
 - `GET /entity/{address}`
 - `GET /entity/{address}/risk`

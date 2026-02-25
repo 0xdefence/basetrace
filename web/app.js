@@ -20,6 +20,8 @@ function kpi(label, value, sub='') {
 
 function sevClass(s){return s==='high'?'high':s==='medium'?'medium':'low'}
 
+function shortAddr(a=''){ return a ? `${a.slice(0,6)}…${a.slice(-4)}` : ''; }
+
 function renderKpis(c) {
   document.getElementById('kpis').innerHTML = [
     kpi('Ingest Lag', c.ingest_lag_blocks ?? 'n/a', 'blocks'),
@@ -50,7 +52,7 @@ function renderHotAlerts(rows=[]) {
 rows.map(r=>`<tr>
   <td><span class="badge ${sevClass(r.severity)}">${r.severity}</span></td>
   <td>${r.type || ''}</td>
-  <td><button class="addr-btn" data-address="${r.address || ''}">${r.address || ''}</button></td>
+  <td><button class="addr-btn" data-address="${r.address || ''}">${shortAddr(r.address||'')}</button></td>
   <td>${(r.confidence||0).toFixed(2)}</td>
   <td class="actions">
     <button class="secondary act-ack" data-id="${r.id}">Ack</button>
@@ -81,7 +83,7 @@ function renderRisk(data) {
   const labels = (data.labels || []).slice(0,8).map(l => `<div class="row"><span>${l.label}</span><strong>${(l.confidence||0).toFixed(2)}</strong></div>`).join('') || '<p class="muted">No labels</p>';
   const f = data.factors || {};
   document.getElementById('riskContent').innerHTML = `
-    <div class="row"><span>Address</span><strong>${data.address}</strong></div>
+    <div class="row"><span>Address</span><strong>${shortAddr(data.address)}</strong></div>
     <div class="row"><span>Risk Score</span><strong>${data.risk_score} (${data.band})</strong></div>
     <div class="factor"><span>Label Risk</span><strong>${f.label_risk ?? 0}</strong></div>
     <div class="factor"><span>Alert Risk</span><strong>${f.alert_risk ?? 0}</strong></div>
@@ -91,6 +93,49 @@ function renderRisk(data) {
     ${labels}
   `;
   document.getElementById('riskDrawer').classList.remove('hidden');
+}
+
+function renderGraph(data, centerAddress){
+  const svg = document.getElementById('graphSvg');
+  const W = 760, H = 340, cx = 210, cy = H/2, R = 120;
+  const nodes = data.nodes || [];
+  const edges = data.edges || [];
+  const center = (centerAddress || '').toLowerCase();
+  const others = nodes.filter(n => (n.id||'').toLowerCase() !== center).slice(0, 12);
+  const pos = {};
+  pos[center] = {x: cx, y: cy};
+  others.forEach((n, i) => {
+    const a = (Math.PI * 2 * i) / Math.max(1, others.length);
+    pos[n.id.toLowerCase()] = {x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * (R * 0.9)};
+  });
+
+  const lines = edges
+    .filter(e => pos[(e.src||'').toLowerCase()] && pos[(e.dst||'').toLowerCase()])
+    .slice(0, 24)
+    .map(e => {
+      const s = pos[e.src.toLowerCase()], d = pos[e.dst.toLowerCase()];
+      return `<line class="g-link" x1="${s.x}" y1="${s.y}" x2="${d.x}" y2="${d.y}"/>`;
+    })
+    .join('');
+
+  const circles = Object.entries(pos).map(([id, p]) => {
+    const isCenter = id === center;
+    const cls = isCenter ? 'g-node center' : 'g-node';
+    const label = shortAddr(id);
+    return `
+      <circle class="${cls}" cx="${p.x}" cy="${p.y}" r="${isCenter ? 16 : 12}" />
+      <text class="g-label" x="${p.x + 14}" y="${p.y + 4}">${label}</text>
+    `;
+  }).join('');
+
+  svg.innerHTML = `${lines}${circles}`;
+  document.getElementById('graphMeta').textContent = `nodes=${nodes.length} edges=${edges.length} center=${shortAddr(centerAddress||'')}`;
+}
+
+async function loadGraph(address) {
+  if (!address) return;
+  const data = await jfetch(`/graph/neighbors/${address}?limit=30`);
+  renderGraph(data, address);
 }
 
 async function refresh() {
@@ -108,6 +153,12 @@ async function refresh() {
   renderRows('topAddresses', (summary.summary||{}).top_alert_addresses_24h || [], 'address');
   renderOps(summary.summary || {});
   renderFailures(state.failures);
+
+  const seedAddress = ((summary.summary||{}).hot_alerts||[])[0]?.address || ((summary.summary||{}).top_alert_addresses_24h||[])[0]?.address;
+  if (seedAddress) {
+    document.getElementById('graphAddress').value = seedAddress;
+    await loadGraph(seedAddress);
+  }
 
   document.getElementById('healthDot').style.background = 'var(--ok)';
   document.getElementById('lastUpdated').textContent = new Date().toISOString();
@@ -148,6 +199,7 @@ async function openRisk(address) {
 function bindActions() {
   document.getElementById('refreshBtn').addEventListener('click', () => runSafe(refresh));
   document.getElementById('closeDrawer').addEventListener('click', () => document.getElementById('riskDrawer').classList.add('hidden'));
+  document.getElementById('graphLoadBtn').addEventListener('click', () => runSafe(() => loadGraph(document.getElementById('graphAddress').value.trim())));
 
   document.body.addEventListener('click', async (e) => {
     const t = e.target;
@@ -156,7 +208,7 @@ function bindActions() {
     if (t.matches('.act-resolve')) return runSafe(() => resolveAlert(t.dataset.id));
     if (t.matches('.fail-retry')) return runSafe(() => retryFailure(t.dataset.id));
     if (t.matches('.fail-resolve')) return runSafe(() => resolveFailure(t.dataset.id));
-    if (t.matches('.addr-btn')) return runSafe(() => openRisk(t.dataset.address));
+    if (t.matches('.addr-btn')) return runSafe(async () => { await openRisk(t.dataset.address); document.getElementById('graphAddress').value = t.dataset.address; await loadGraph(t.dataset.address); });
   });
 }
 
