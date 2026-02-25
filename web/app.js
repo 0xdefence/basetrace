@@ -7,7 +7,7 @@ const store = {
     failures: [],
     taxonomy: {},
     graph: { nodes: [], edges: [], center: '' },
-    graphView: { minTx: 1, direction: 'both', scale: 1 },
+    graphView: { minTx: 1, direction: 'both' },
   },
   set(patch) { this.state = { ...this.state, ...patch }; renderApp(); },
 };
@@ -109,41 +109,117 @@ function filteredGraph() {
   return { center: c, nodes: (nodes || []).filter((n) => used.has((n.id || '').toLowerCase())), edges: es };
 }
 
+// ─── D3 force-directed graph ────────────────────────────────────────────────
+let _graphSim = null;
+
+function stopSim() {
+  if (_graphSim) { _graphSim.stop(); _graphSim = null; }
+}
+
 function renderFlowGraph() {
-  const svg = document.getElementById('graphSvg');
-  const { scale } = store.state.graphView;
-  const { nodes, edges, center } = filteredGraph();
-  if (!center || nodes.length <= 1) {
-    svg.setAttribute('viewBox', `0 0 760 340`);
-    svg.innerHTML = `<text class="g-label" x="20" y="32">No graph data yet. Load an address with neighbors.</text>`;
+  const svgEl = document.getElementById('graphSvg');
+  const { center } = store.state.graph;
+  const { nodes, edges } = filteredGraph();
+
+  stopSim();
+
+  if (!nodes.length || !edges.length) {
+    d3.select(svgEl).selectAll('*').remove();
+    d3.select(svgEl).append('text')
+      .attr('x', 20).attr('y', 40)
+      .attr('fill', '#8899bb').attr('font-size', 13)
+      .text('No graph data. Load an address or click "Load Map".');
     document.getElementById('graphMeta').textContent = 'nodes=0 edges=0';
     return;
   }
 
-  const baseW = 760, baseH = 340;
-  const w = baseW / scale, h = baseH / scale;
-  svg.setAttribute('viewBox', `${(baseW - w) / 2} ${(baseH - h) / 2} ${w} ${h}`);
+  const W = svgEl.clientWidth || 760;
+  const H = svgEl.clientHeight || 540;
 
-  const cx = 380, cy = 170, R = 125;
-  const pos = { [center]: { x: cx, y: cy } };
-  const others = nodes.filter((n) => n.id.toLowerCase() !== center).slice(0, 16);
-  others.forEach((n, i) => {
-    const a = (Math.PI * 2 * i) / Math.max(1, others.length);
-    pos[n.id.toLowerCase()] = { x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * (R * 0.85) };
-  });
+  // Build unique node+edge sets for d3
+  const nodeById = {};
+  nodes.forEach(n => { nodeById[n.id] = { id: n.id, isCenter: n.id === center }; });
+  const nodeArr = Object.values(nodeById);
+  const linkArr = edges.map(e => ({ source: e.src, target: e.dst, tx_count: e.tx_count }));
 
-  const lines = edges.filter((e) => pos[e.src.toLowerCase()] && pos[e.dst.toLowerCase()]).slice(0, 40).map((e) => {
-    const s = pos[e.src.toLowerCase()], d = pos[e.dst.toLowerCase()];
-    return `<line class="g-link" x1="${s.x}" y1="${s.y}" x2="${d.x}" y2="${d.y}"/>`;
-  }).join('');
+  const maxTx = Math.max(1, ...linkArr.map(l => l.tx_count));
 
-  const circles = Object.entries(pos).map(([id, p]) => `
-    <circle class="g-node ${id === center ? 'center' : ''} g-click" data-node="${id}" cx="${p.x}" cy="${p.y}" r="${id === center ? 16 : 11}"/>
-    <text class="g-label" x="${p.x + 12}" y="${p.y + 4}">${shortAddr(id)}</text>`).join('');
+  const svg = d3.select(svgEl);
+  svg.selectAll('*').remove();
 
-  svg.innerHTML = `${lines}${circles}`;
-  document.getElementById('graphMeta').textContent = `nodes=${nodes.length} edges=${edges.length} center=${shortAddr(center)} minTx=${store.state.graphView.minTx} dir=${store.state.graphView.direction} zoom=${scale.toFixed(2)}x`;
+  // Zoom + pan container
+  const root = svg.append('g').attr('class', 'zoom-root');
+  svg.call(
+    d3.zoom()
+      .scaleExtent([0.15, 4])
+      .on('zoom', (event) => root.attr('transform', event.transform))
+  );
+
+  // Arrow marker
+  svg.append('defs').append('marker')
+    .attr('id', 'arrow')
+    .attr('viewBox', '0 -4 8 8')
+    .attr('refX', 18).attr('refY', 0)
+    .attr('markerWidth', 5).attr('markerHeight', 5)
+    .attr('orient', 'auto')
+    .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#3B82F6').attr('opacity', 0.7);
+
+  const linkEl = root.append('g').selectAll('line')
+    .data(linkArr).join('line')
+    .attr('stroke', '#3B82F6')
+    .attr('stroke-opacity', d => 0.25 + 0.55 * (d.tx_count / maxTx))
+    .attr('stroke-width', d => 0.8 + 2.5 * (d.tx_count / maxTx))
+    .attr('marker-end', 'url(#arrow)');
+
+  const nodeEl = root.append('g').selectAll('g')
+    .data(nodeArr).join('g')
+    .attr('class', 'g-node-group')
+    .call(
+      d3.drag()
+        .on('start', (event, d) => {
+          if (!event.active) _graphSim.alphaTarget(0.3).restart();
+          d.fx = d.x; d.fy = d.y;
+        })
+        .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
+        .on('end', (event, d) => {
+          if (!event.active) _graphSim.alphaTarget(0);
+          d.fx = null; d.fy = null;
+        })
+    )
+    .on('click', (event, d) => runSafe(() => loadGraph(d.id)));
+
+  nodeEl.append('circle')
+    .attr('r', d => d.isCenter ? 14 : 9)
+    .attr('fill', d => d.isCenter ? '#5B8DFF' : '#22304e')
+    .attr('stroke', d => d.isCenter ? '#fff' : '#3B82F6')
+    .attr('stroke-width', d => d.isCenter ? 2.5 : 1.2)
+    .attr('class', 'g-click')
+    .attr('data-node', d => d.id)
+    .style('cursor', 'pointer');
+
+  nodeEl.append('text')
+    .text(d => shortAddr(d.id))
+    .attr('fill', '#c0cfee')
+    .attr('font-size', 10)
+    .attr('dx', 14).attr('dy', 4)
+    .style('pointer-events', 'none');
+
+  _graphSim = d3.forceSimulation(nodeArr)
+    .force('link', d3.forceLink(linkArr).id(d => d.id).distance(90).strength(0.7))
+    .force('charge', d3.forceManyBody().strength(-180))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide(22))
+    .on('tick', () => {
+      linkEl
+        .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      nodeEl.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+
+  document.getElementById('graphMeta').textContent =
+    `nodes=${nodes.length} edges=${edges.length} center=${center ? shortAddr(center) : 'global'} minTx=${store.state.graphView.minTx} dir=${store.state.graphView.direction}`;
 }
+// ─── end graph ───────────────────────────────────────────────────────────────
 
 function renderTaxonomy() {
   const labelsMap = store.state.taxonomy || {};
@@ -175,8 +251,16 @@ function renderApp() {
 async function loadGraph(address) {
   const a = (address || '').trim();
   if (!a) return;
-  const g = await jfetch(`/graph/neighbors/${a}?limit=40`);
+  stopSim();
+  const g = await jfetch(`/graph/neighbors/${a}?limit=60`);
   store.set({ graph: { ...g, center: a.toLowerCase() }, activePanel: 'flow' });
+}
+
+async function loadGlobalMap() {
+  stopSim();
+  const g = await jfetch('/graph/global?limit=80');
+  store.set({ graph: { ...g, center: '' }, activePanel: 'flow' });
+  document.getElementById('graphAddress').value = '';
 }
 
 async function openRisk(address) {
@@ -196,12 +280,22 @@ async function refreshAll() {
       jfetch('/runbook/failures?limit=20'),
       jfetch('/labels/taxonomy'),
     ]);
-    const seed = (summary.summary?.hot_alerts || [])[0]?.address || '';
+    const seed =
+      (summary.summary?.hot_alerts || [])[0]?.address ||
+      (summary.summary?.hot_addresses || [])[0]?.address ||
+      '';
     let graph = store.state.graph;
-    if (seed && !graph.center) {
-      const g = await jfetch(`/graph/neighbors/${seed}?limit=40`);
-      graph = { ...g, center: seed.toLowerCase() };
-      document.getElementById('graphAddress').value = seed;
+    if (!graph.center && !graph.nodes?.length) {
+      if (seed) {
+        const g = await jfetch(`/graph/neighbors/${seed}?limit=60`);
+        graph = { ...g, center: seed.toLowerCase() };
+        document.getElementById('graphAddress').value = seed;
+      } else {
+        const g = await jfetch('/graph/global?limit=80');
+        if (g.nodes?.length) {
+          graph = { ...g, center: '' };
+        }
+      }
     }
     store.set({ summary, failures: failures.failures || [], taxonomy: taxonomy.labels || {}, graph });
     document.getElementById('healthDot').style.background = 'var(--ok)';
@@ -239,19 +333,27 @@ function bind() {
   });
 
   document.getElementById('graphLoadBtn').addEventListener('click', () => runSafe(() => loadGraph(document.getElementById('graphAddress').value)));
-  document.getElementById('graphLoadKnownBtn').addEventListener('click', () => runSafe(async () => {
-    const known = ['0x4200000000000000000000000000000000000010', '0x4200000000000000000000000000000000000007', '0x4200000000000000000000000000000000000011'];
-    for (const a of known) { try { await loadGraph(a); document.getElementById('graphAddress').value = a; return; } catch {} }
-  }));
+  document.getElementById('graphLoadMapBtn').addEventListener('click', () => runSafe(loadGlobalMap));
 
   document.getElementById('graphApplyFiltersBtn').addEventListener('click', () => {
     const minTx = Number(document.getElementById('graphMinTx').value || 1);
     const direction = document.getElementById('graphDirection').value;
+    stopSim();
     store.set({ graphView: { ...store.state.graphView, minTx: Math.max(0, minTx), direction } });
   });
-  document.getElementById('graphZoomInBtn').addEventListener('click', () => store.set({ graphView: { ...store.state.graphView, scale: Math.min(2.5, store.state.graphView.scale + 0.2) } }));
-  document.getElementById('graphZoomOutBtn').addEventListener('click', () => store.set({ graphView: { ...store.state.graphView, scale: Math.max(0.8, store.state.graphView.scale - 0.2) } }));
-  document.getElementById('graphResetBtn').addEventListener('click', () => store.set({ graphView: { minTx: 1, direction: 'both', scale: 1 } }));
+  document.getElementById('graphZoomInBtn').addEventListener('click', () => {
+    const svgEl = document.getElementById('graphSvg');
+    d3.select(svgEl).transition().call(d3.zoom().scaleBy, 1.3);
+  });
+  document.getElementById('graphZoomOutBtn').addEventListener('click', () => {
+    const svgEl = document.getElementById('graphSvg');
+    d3.select(svgEl).transition().call(d3.zoom().scaleBy, 0.77);
+  });
+  document.getElementById('graphResetBtn').addEventListener('click', () => {
+    const svgEl = document.getElementById('graphSvg');
+    d3.select(svgEl).transition().call(d3.zoom().transform, d3.zoomIdentity);
+    store.set({ graphView: { minTx: 1, direction: 'both', scale: 1 } });
+  });
 
   document.body.addEventListener('click', (e) => runSafe(async () => {
     const t = e.target;
@@ -261,7 +363,6 @@ function bind() {
     if (t.matches('.fail-retry')) { await jfetch(`/runbook/failures/${t.dataset.id}/retry`, { method: 'POST' }); toast(`Failure ${t.dataset.id} queued for retry`); return refreshAll(); }
     if (t.matches('.fail-resolve')) { await jfetch(`/runbook/failures/${t.dataset.id}/resolve`, { method: 'POST' }); toast(`Failure ${t.dataset.id} resolved`); return refreshAll(); }
     if (t.matches('.addr-btn')) { const address = t.dataset.address; if (address) { await openRisk(address); await loadGraph(address); } }
-    if (t.matches('.g-click')) { const address = t.dataset.node; if (address) await openRisk(address); }
   }));
 }
 

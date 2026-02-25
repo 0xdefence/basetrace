@@ -25,7 +25,7 @@ input,select{background:#0f172a;color:var(--text);border:1px solid var(--border)
 .badge{padding:2px 8px;border-radius:999px;font-size:12px}.badge.high{background:rgba(239,68,68,.2);color:#FCA5A5}.badge.medium{background:rgba(245,158,11,.2);color:#FCD34D}.badge.low{background:rgba(16,185,129,.2);color:#6EE7B7}
 .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);gap:10px}.row:last-child{border-bottom:0}
 .actions{display:flex;gap:6px;flex-wrap:wrap}.addr-btn{background:none;border:0;color:#93C5FD;text-decoration:underline;cursor:pointer;padding:0}
-#graphSvg,#taxonomySvg{width:100%;border:1px solid var(--border);border-radius:10px;background:#0B1220}#graphSvg{height:340px}#taxonomySvg{height:260px}
+#graphSvg,#taxonomySvg{width:100%;border:1px solid var(--border);border-radius:10px;background:#0B1220}#graphSvg{height:540px}#taxonomySvg{height:260px}
 .g-link{stroke:#2e4267;stroke-width:1.2}.g-node{fill:#1f3255;stroke:#4d6ca8;stroke-width:1.2}.g-node.center{fill:#0052FF;stroke:#93C5FD}.g-label{fill:#c7d2fe;font-size:11px}
 .drawer{position:fixed;right:16px;top:16px;bottom:16px;width:360px;background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:12px;overflow:auto}.drawer.hidden{display:none}
 .drawer-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.factor{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)}

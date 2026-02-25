@@ -48,6 +48,17 @@ def dashboard_summary(hot_limit: int = 5):
         )
         top_addr_rows = cur.fetchall()
 
+        cur.execute(
+            """
+            SELECT address, tx_count
+            FROM addresses
+            ORDER BY tx_count DESC
+            LIMIT %s
+            """,
+            (hot_limit,),
+        )
+        hot_addr_rows = cur.fetchall()
+
     hot_alerts = [
         {
             "id": int(i),
@@ -63,6 +74,7 @@ def dashboard_summary(hot_limit: int = 5):
 
     top_types = [{"type": t, "count": int(c)} for t, c in top_types_rows]
     top_addresses = [{"address": a, "count": int(c)} for a, c in top_addr_rows]
+    hot_addresses = [{"address": a, "tx_count": int(c)} for a, c in hot_addr_rows]
 
     return {
         "compact": {
@@ -83,5 +95,6 @@ def dashboard_summary(hot_limit: int = 5):
             "top_alert_types_24h": top_types,
             "top_alert_addresses_24h": top_addresses,
             "hot_alerts": hot_alerts,
+            "hot_addresses": hot_addresses,
         },
     }

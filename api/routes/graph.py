@@ -1,8 +1,13 @@
 from fastapi import APIRouter
 
-from api.services.graph_service import get_neighbors
+from api.services.graph_service import get_global_graph, get_neighbors
 
 router = APIRouter()
+
+
+@router.get("/global")
+def global_graph(limit: int = 80):
+    return get_global_graph(limit=min(limit, 200))
 
 
 @router.get("/neighbors/{address}")
