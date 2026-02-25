@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS alerts (
   evidence JSONB,
   fingerprint TEXT,
   status TEXT DEFAULT 'new',
+  assignee TEXT,
+  ack_at TIMESTAMPTZ,
+  resolved_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

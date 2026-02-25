@@ -10,6 +10,14 @@ BRIDGES = {
 }
 
 
+def _ensure_alert_columns() -> None:
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS assignee TEXT")
+        cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS ack_at TIMESTAMPTZ")
+        cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ")
+
+
 def _fingerprint(alert: Dict[str, Any]) -> str:
     base = {
         "type": alert.get("type"),
@@ -23,6 +31,7 @@ def _persist_alerts(candidates: List[Dict[str, Any]], dedupe_hours: int = 6) -> 
     if not candidates:
         return
 
+    _ensure_alert_columns()
     with get_conn() as conn:
         cur = conn.cursor()
         for a in candidates:
@@ -258,9 +267,12 @@ def _format_rows(rows):
             "confidence": float(c or 0),
             "evidence": e or {},
             "status": st,
+            "assignee": assignee,
+            "ack_at": ack_at.isoformat() if ack_at else None,
+            "resolved_at": resolved_at.isoformat() if resolved_at else None,
             "created_at": created.isoformat() if created else None,
         }
-        for i, t, a, s, c, e, st, created in rows
+        for i, t, a, s, c, e, st, assignee, ack_at, resolved_at, created in rows
     ]
 
 
@@ -273,7 +285,7 @@ def recent_alerts(limit: int = 20, status: Optional[str] = None):
         if status:
             cur.execute(
                 """
-                SELECT id, type, address, severity, confidence, evidence, status, created_at
+                SELECT id, type, address, severity, confidence, evidence, status, assignee, ack_at, resolved_at, created_at
                 FROM alerts
                 WHERE status = %s
                 ORDER BY created_at DESC
@@ -284,7 +296,7 @@ def recent_alerts(limit: int = 20, status: Optional[str] = None):
         else:
             cur.execute(
                 """
-                SELECT id, type, address, severity, confidence, evidence, status, created_at
+                SELECT id, type, address, severity, confidence, evidence, status, assignee, ack_at, resolved_at, created_at
                 FROM alerts
                 ORDER BY created_at DESC
                 LIMIT %s
@@ -302,7 +314,7 @@ def alerts_for_address(address: str, limit: int = 20, status: Optional[str] = No
         if status:
             cur.execute(
                 """
-                SELECT id, type, address, severity, confidence, evidence, status, created_at
+                SELECT id, type, address, severity, confidence, evidence, status, assignee, ack_at, resolved_at, created_at
                 FROM alerts
                 WHERE address = %s AND status = %s
                 ORDER BY created_at DESC
@@ -313,7 +325,7 @@ def alerts_for_address(address: str, limit: int = 20, status: Optional[str] = No
         else:
             cur.execute(
                 """
-                SELECT id, type, address, severity, confidence, evidence, status, created_at
+                SELECT id, type, address, severity, confidence, evidence, status, assignee, ack_at, resolved_at, created_at
                 FROM alerts
                 WHERE address = %s
                 ORDER BY created_at DESC
@@ -326,20 +338,45 @@ def alerts_for_address(address: str, limit: int = 20, status: Optional[str] = No
     return _format_rows(rows)
 
 
-def update_alert_status(alert_id: int, status: str):
+def alert_queue(limit: int = 20, status: str = "new"):
+    _ensure_alert_columns()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, type, address, severity, confidence, evidence, status, assignee, ack_at, resolved_at, created_at
+            FROM alerts
+            WHERE status = %s
+            ORDER BY
+              CASE severity WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
+              confidence DESC,
+              created_at DESC
+            LIMIT %s
+            """,
+            (status, limit),
+        )
+        rows = cur.fetchall()
+    return _format_rows(rows)
+
+
+def update_alert_status(alert_id: int, status: str, assignee: Optional[str] = None):
     if status not in {"new", "ack", "resolved"}:
         raise ValueError("invalid status")
 
+    _ensure_alert_columns()
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
             """
             UPDATE alerts
-            SET status = %s
+            SET status = %s,
+                assignee = COALESCE(%s, assignee),
+                ack_at = CASE WHEN %s = 'ack' THEN now() ELSE ack_at END,
+                resolved_at = CASE WHEN %s = 'resolved' THEN now() ELSE resolved_at END
             WHERE id = %s
-            RETURNING id, type, address, severity, confidence, evidence, status, created_at
+            RETURNING id, type, address, severity, confidence, evidence, status, assignee, ack_at, resolved_at, created_at
             """,
-            (status, alert_id),
+            (status, assignee, status, status, alert_id),
         )
         row = cur.fetchone()
 

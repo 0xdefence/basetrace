@@ -2,7 +2,8 @@
 
 - Pulls blocks/txs from Base RPC
 - Persists txs, address stats, and edge aggregates
-- Extracts ERC20 Transfer logs per block
+- Extracts ERC20 Transfer logs per block (chunk-ready)
+- Supports RPC fallback + retry/backoff
 """
 
 import os
@@ -24,14 +25,22 @@ def h2i(x: str) -> int:
     return int(x, 16)
 
 
-def rpc_call(client: httpx.Client, rpc_url: str, method: str, params: list):
-    payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
-    r = client.post(rpc_url, json=payload, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    if "error" in data:
-        raise RuntimeError(f"RPC {method} error: {data['error']}")
-    return data.get("result")
+def rpc_call(client: httpx.Client, rpc_urls: list[str], method: str, params: list, retries: int = 3):
+    last_err = None
+    for rpc_url in rpc_urls:
+        for attempt in range(retries):
+            try:
+                payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+                r = client.post(rpc_url, json=payload, timeout=30)
+                r.raise_for_status()
+                data = r.json()
+                if "error" in data:
+                    raise RuntimeError(f"RPC {method} error: {data['error']}")
+                return data.get("result")
+            except Exception as e:
+                last_err = e
+                time.sleep(min(5, 0.6 * (2**attempt)))
+    raise RuntimeError(f"RPC {method} failed across providers: {last_err}")
 
 
 def ensure_state(conn):
@@ -85,9 +94,9 @@ def upsert_address(cur, address: str, block_number: int, tx_inc: int = 0, deploy
     )
 
 
-def ingest_block(conn, client, rpc_url: str, block_number: int):
+def ingest_block(conn, client, rpc_urls: list[str], block_number: int):
     block_hex = hex(block_number)
-    block = rpc_call(client, rpc_url, "eth_getBlockByNumber", [block_hex, True])
+    block = rpc_call(client, rpc_urls, "eth_getBlockByNumber", [block_hex, True])
     if not block:
         return 0, 0
 
@@ -130,10 +139,10 @@ def ingest_block(conn, client, rpc_url: str, block_number: int):
 
         tx_count += 1
 
-    # Pull Transfer logs for this block
+    # Pull Transfer logs for this block (chunk-ready shape)
     logs = rpc_call(
         client,
-        rpc_url,
+        rpc_urls,
         "eth_getLogs",
         [{"fromBlock": block_hex, "toBlock": block_hex, "topics": [TRANSFER_TOPIC]}],
     ) or []
@@ -167,7 +176,10 @@ def ingest_block(conn, client, rpc_url: str, block_number: int):
 def run_ingest_loop():
     load_dotenv()
 
-    rpc_url = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+    primary = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+    fallback = os.getenv("BASE_RPC_FALLBACKS", "")
+    rpc_urls = [primary] + [u.strip() for u in fallback.split(",") if u.strip()]
+
     dsn = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/basetrace")
     confirmations = int(os.getenv("INGEST_CONFIRMATIONS", "3"))
     start_block_env = int(os.getenv("INGEST_START_BLOCK", "0"))
@@ -177,18 +189,22 @@ def run_ingest_loop():
 
     with httpx.Client() as client:
         while True:
-            head = h2i(rpc_call(client, rpc_url, "eth_blockNumber", []))
-            safe_head = max(0, head - confirmations)
-            last = get_last_block(conn)
-            nxt = max(start_block_env, last + 1)
+            try:
+                head = h2i(rpc_call(client, rpc_urls, "eth_blockNumber", []))
+                safe_head = max(0, head - confirmations)
+                last = get_last_block(conn)
+                nxt = max(start_block_env, last + 1)
 
-            if nxt > safe_head:
-                print(f"[ingest] up-to-date last={last} safe_head={safe_head}")
-                time.sleep(5)
-                continue
+                if nxt > safe_head:
+                    print(f"[ingest] up-to-date last={last} safe_head={safe_head}")
+                    time.sleep(5)
+                    continue
 
-            txc, trc = ingest_block(conn, client, rpc_url, nxt)
-            print(f"[ingest] block={nxt} tx={txc} transfers={trc}")
+                txc, trc = ingest_block(conn, client, rpc_urls, nxt)
+                print(f"[ingest] block={nxt} tx={txc} transfers={trc}")
+            except Exception as e:
+                print(f"[ingest] error: {e}")
+                time.sleep(3)
 
 
 if __name__ == "__main__":

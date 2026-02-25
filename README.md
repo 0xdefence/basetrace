@@ -42,9 +42,10 @@ Services:
 - `GET /search?q=...`
 - `GET /cluster/{address}`
 - `GET /alerts/recent?status=new|ack|resolved`
+- `GET /alerts/queue?status=new`
 - `GET /alerts/{address}?status=new|ack|resolved`
-- `POST /alerts/{id}/ack`
-- `POST /alerts/{id}/resolve`
+- `POST /alerts/{id}/ack?assignee=<name>`
+- `POST /alerts/{id}/resolve?assignee=<name>`
 
 ## Roadmap
 See `docs/roadmap.md` and `docs/architecture.md`.
