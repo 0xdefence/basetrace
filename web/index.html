@@ -7,77 +7,90 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <header class="top">
-    <div>
-      <h1>BaseTrace Console</h1>
-      <p class="muted">Base-native intel dashboard</p>
-    </div>
-    <div class="top-actions">
-      <span id="healthDot" class="dot"></span>
-      <span id="lastUpdated" class="muted">never</span>
-      <button id="refreshBtn">Refresh</button>
-    </div>
-  </header>
-
-  <section class="kpis" id="kpis"></section>
-
-  <main class="grid">
-    <section class="panel">
-      <div class="panel-head"><h2>Hot Alerts</h2></div>
-      <div id="hotAlerts"></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head"><h2>Runbook Ops</h2></div>
-      <div class="preset-row">
-        <button class="secondary" data-preset="conservative">Conservative</button>
-        <button class="secondary" data-preset="base">Base</button>
-        <button class="secondary" data-preset="aggressive">Aggressive</button>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>BaseTrace</h1>
+        <p class="muted">Base-native intel map</p>
       </div>
-      <div id="runbookOps"></div>
-      <div id="presetStatus" class="muted tiny"></div>
-    </section>
-  </main>
+      <nav class="nav" id="panelNav">
+        <button class="nav-btn active" data-panel="overview">Overview</button>
+        <button class="nav-btn" data-panel="flow">Flow Graph</button>
+        <button class="nav-btn" data-panel="taxonomy">Taxonomy</button>
+        <button class="nav-btn" data-panel="failures">Failures</button>
+      </nav>
+      <div class="sidebar-foot muted" id="statusBar">booting...</div>
+    </aside>
 
-  <section class="grid bottom">
-    <section class="panel">
-      <div class="panel-head"><h2>Dead-letter Queue</h2></div>
-      <div id="failures"></div>
-    </section>
-    <section class="panel"><div class="panel-head"><h2>Top Types (24h)</h2></div><div id="topTypes"></div></section>
-  </section>
-
-  <section class="grid bottom">
-    <section class="panel">
-      <div class="panel-head split">
-        <h2>Flow Graph (neighbors)</h2>
-        <div class="inline-actions">
-          <input id="graphAddress" placeholder="0x..." />
-          <button id="graphLoadBtn" class="secondary" type="button">Load</button>
-          <button id="graphLoadKnownBtn" class="secondary" type="button">Load Known</button>
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h2 id="panelTitle">Overview</h2>
+          <p class="muted" id="panelSubtitle">Core operations dashboard</p>
         </div>
+        <div class="top-actions">
+          <span id="healthDot" class="dot"></span>
+          <span id="lastUpdated" class="muted">never</span>
+          <button id="refreshBtn">Refresh</button>
+        </div>
+      </header>
+
+      <section id="panel-overview" class="panel-view active">
+        <section class="kpis" id="kpis"></section>
+        <section class="grid-2">
+          <section class="panel"><div class="panel-head"><h3>Hot Alerts</h3></div><div id="hotAlerts"></div></section>
+          <section class="panel">
+            <div class="panel-head"><h3>Runbook Ops</h3></div>
+            <div class="preset-row">
+              <button class="secondary" data-preset="conservative">Conservative</button>
+              <button class="secondary" data-preset="base">Base</button>
+              <button class="secondary" data-preset="aggressive">Aggressive</button>
+            </div>
+            <div id="runbookOps"></div>
+            <div id="presetStatus" class="muted tiny"></div>
+          </section>
+        </section>
+      </section>
+
+      <section id="panel-flow" class="panel-view">
+        <section class="panel">
+          <div class="panel-head split">
+            <h3>Flow Graph (neighbors)</h3>
+            <div class="inline-actions">
+              <input id="graphAddress" placeholder="0x..." />
+              <button id="graphLoadBtn" class="secondary" type="button">Load</button>
+              <button id="graphLoadKnownBtn" class="secondary" type="button">Load Known</button>
+            </div>
+          </div>
+          <svg id="graphSvg" viewBox="0 0 760 340"></svg>
+          <div id="graphMeta" class="muted tiny"></div>
+        </section>
+      </section>
+
+      <section id="panel-taxonomy" class="panel-view">
+        <section class="panel">
+          <div class="panel-head"><h3>Taxonomy Mapping Visualization</h3></div>
+          <svg id="taxonomySvg" viewBox="0 0 760 260"></svg>
+          <div id="taxonomyMeta" class="tiny"></div>
+        </section>
+      </section>
+
+      <section id="panel-failures" class="panel-view">
+        <section class="grid-2">
+          <section class="panel"><div class="panel-head"><h3>Dead-letter Queue</h3></div><div id="failures"></div></section>
+          <section class="panel"><div class="panel-head"><h3>Top Addresses (24h)</h3></div><div id="topAddresses"></div></section>
+        </section>
+      </section>
+    </main>
+
+    <aside id="riskDrawer" class="drawer hidden" aria-live="polite">
+      <div class="drawer-head">
+        <h3>Entity Risk</h3>
+        <button id="closeDrawer" class="secondary">Close</button>
       </div>
-      <svg id="graphSvg" viewBox="0 0 760 340" role="img" aria-label="Flow graph"></svg>
-      <div id="graphMeta" class="muted tiny"></div>
-    </section>
-    <section class="panel"><div class="panel-head"><h2>Top Addresses (24h)</h2></div><div id="topAddresses"></div></section>
-  </section>
-
-  <section class="grid bottom single">
-    <section class="panel">
-      <div class="panel-head"><h2>Taxonomy Mapping Visualization</h2></div>
-      <svg id="taxonomySvg" viewBox="0 0 760 260" role="img" aria-label="Taxonomy mapping"></svg>
-      <div id="taxonomyMeta" class="tiny"></div>
-    </section>
-  </section>
-
-  <aside id="riskDrawer" class="drawer hidden" aria-live="polite">
-    <div class="drawer-head">
-      <h3>Entity Risk</h3>
-      <button id="closeDrawer" class="secondary">Close</button>
-    </div>
-    <div id="riskContent" class="muted">Select an address to load risk.</div>
-  </aside>
+      <div id="riskContent" class="muted">Select an address to load risk.</div>
+    </aside>
+  </div>
 
   <script src="./app.js"></script>
 </body>
