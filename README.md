@@ -43,6 +43,7 @@ INGEST_REPLAY_MODE=1 docker compose up ingestor
 - `GET /metrics`
 - `GET /runbook/ingest`
 - `GET /runbook/alerts`
+- `GET /runbook/failures`
 - `GET /graph/neighbors/{address}`
 - `GET /labels/{address}`
 - `GET /entity/{address}`

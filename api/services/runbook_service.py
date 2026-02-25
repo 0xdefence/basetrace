@@ -26,6 +26,46 @@ def ingest_runbook():
     }
 
 
+def failures_runbook(limit: int = 100):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, stage, start_block, end_block, error, retry_count, status, created_at, updated_at
+            FROM ingest_failures
+            ORDER BY updated_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+
+    items = [
+        {
+            "id": int(i),
+            "stage": stage,
+            "start_block": int(s) if s is not None else None,
+            "end_block": int(e) if e is not None else None,
+            "error": err,
+            "retry_count": int(r or 0),
+            "status": st,
+            "created_at": created.isoformat() if created else None,
+            "updated_at": updated.isoformat() if updated else None,
+        }
+        for i, stage, s, e, err, r, st, created, updated in rows
+    ]
+
+    summary = {"open": 0, "resolved": 0, "other": 0}
+    for it in items:
+        st = it.get("status")
+        if st in summary:
+            summary[st] += 1
+        else:
+            summary["other"] += 1
+
+    return {"limit": limit, "summary": summary, "failures": items}
+
+
 def alerts_runbook():
     with get_conn() as conn:
         cur = conn.cursor()
