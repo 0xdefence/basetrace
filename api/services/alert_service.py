@@ -1,5 +1,6 @@
 import hashlib
 import json
+from typing import Any, Dict, List, Optional
 
 from api.services.db import get_conn
 
@@ -9,7 +10,7 @@ BRIDGES = {
 }
 
 
-def _fingerprint(alert: dict) -> str:
+def _fingerprint(alert: Dict[str, Any]) -> str:
     base = {
         "type": alert.get("type"),
         "address": (alert.get("address") or "").lower(),
@@ -18,9 +19,10 @@ def _fingerprint(alert: dict) -> str:
     return hashlib.sha256(json.dumps(base, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def _persist_alerts(candidates: list[dict], dedupe_hours: int = 6):
+def _persist_alerts(candidates: List[Dict[str, Any]], dedupe_hours: int = 6) -> None:
     if not candidates:
         return
+
     with get_conn() as conn:
         cur = conn.cursor()
         for a in candidates:
@@ -53,12 +55,13 @@ def _persist_alerts(candidates: list[dict], dedupe_hours: int = 6):
             )
 
 
-def _generate_alert_candidates(limit: int = 20):
-    alerts = []
+def _generate_alert_candidates(limit: int = 20) -> List[Dict[str, Any]]:
+    alerts: List[Dict[str, Any]] = []
+
     with get_conn() as conn:
         cur = conn.cursor()
 
-        # Fan-out spikes: outbound tx count now vs previous window
+        # Fan-out spikes (24h vs previous 24h)
         cur.execute(
             """
             WITH now_w AS (
@@ -105,7 +108,7 @@ def _generate_alert_candidates(limit: int = 20):
                     }
                 )
 
-        # Fan-in spikes: inbound tx count now vs previous window
+        # Fan-in spikes (24h vs previous 24h)
         cur.execute(
             """
             WITH now_w AS (
@@ -193,7 +196,7 @@ def _generate_alert_candidates(limit: int = 20):
                 }
             )
 
-        # Bridge route anomalies: counterparties hitting bridge infra now vs previous window
+        # Bridge route anomalies (24h vs previous 24h)
         cur.execute(
             """
             WITH now_w AS (
@@ -261,7 +264,7 @@ def _format_rows(rows):
     ]
 
 
-def recent_alerts(limit: int = 20, status: str | None = None):
+def recent_alerts(limit: int = 20, status: Optional[str] = None):
     candidates = _generate_alert_candidates(limit=max(limit, 50))
     _persist_alerts(candidates)
 
@@ -293,7 +296,7 @@ def recent_alerts(limit: int = 20, status: str | None = None):
     return _format_rows(rows)
 
 
-def alerts_for_address(address: str, limit: int = 20, status: str | None = None):
+def alerts_for_address(address: str, limit: int = 20, status: Optional[str] = None):
     with get_conn() as conn:
         cur = conn.cursor()
         if status:
