@@ -19,7 +19,6 @@ function kpi(label, value, sub='') {
 }
 
 function sevClass(s){return s==='high'?'high':s==='medium'?'medium':'low'}
-
 function shortAddr(a=''){ return a ? `${a.slice(0,6)}…${a.slice(-4)}` : ''; }
 
 function renderKpis(c) {
@@ -95,23 +94,30 @@ function renderRisk(data) {
   document.getElementById('riskDrawer').classList.remove('hidden');
 }
 
-function renderGraph(data, centerAddress){
+function renderFlowGraph(data, centerAddress){
   const svg = document.getElementById('graphSvg');
-  const W = 760, H = 340, cx = 210, cy = H/2, R = 120;
+  const W = 760, H = 340, cx = W/2, cy = H/2, R = 125;
   const nodes = data.nodes || [];
   const edges = data.edges || [];
   const center = (centerAddress || '').toLowerCase();
-  const others = nodes.filter(n => (n.id||'').toLowerCase() !== center).slice(0, 12);
+
+  if (!center || nodes.length <= 1) {
+    svg.innerHTML = `<text class="g-label" x="20" y="32">No graph data yet. Load an address with neighbors.</text>`;
+    document.getElementById('graphMeta').textContent = 'nodes=0 edges=0';
+    return;
+  }
+
+  const others = nodes.filter(n => (n.id||'').toLowerCase() !== center).slice(0, 14);
   const pos = {};
   pos[center] = {x: cx, y: cy};
   others.forEach((n, i) => {
     const a = (Math.PI * 2 * i) / Math.max(1, others.length);
-    pos[n.id.toLowerCase()] = {x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * (R * 0.9)};
+    pos[n.id.toLowerCase()] = {x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * (R * 0.85)};
   });
 
   const lines = edges
     .filter(e => pos[(e.src||'').toLowerCase()] && pos[(e.dst||'').toLowerCase()])
-    .slice(0, 24)
+    .slice(0, 28)
     .map(e => {
       const s = pos[e.src.toLowerCase()], d = pos[e.dst.toLowerCase()];
       return `<line class="g-link" x1="${s.x}" y1="${s.y}" x2="${d.x}" y2="${d.y}"/>`;
@@ -120,11 +126,9 @@ function renderGraph(data, centerAddress){
 
   const circles = Object.entries(pos).map(([id, p]) => {
     const isCenter = id === center;
-    const cls = isCenter ? 'g-node center' : 'g-node';
-    const label = shortAddr(id);
     return `
-      <circle class="${cls}" cx="${p.x}" cy="${p.y}" r="${isCenter ? 16 : 12}" />
-      <text class="g-label" x="${p.x + 14}" y="${p.y + 4}">${label}</text>
+      <circle class="g-node ${isCenter ? 'center' : ''}" cx="${p.x}" cy="${p.y}" r="${isCenter ? 16 : 11}" />
+      <text class="g-label" x="${p.x + 12}" y="${p.y + 4}">${shortAddr(id)}</text>
     `;
   }).join('');
 
@@ -132,10 +136,42 @@ function renderGraph(data, centerAddress){
   document.getElementById('graphMeta').textContent = `nodes=${nodes.length} edges=${edges.length} center=${shortAddr(centerAddress||'')}`;
 }
 
-async function loadGraph(address) {
-  if (!address) return;
+function renderTaxonomyMap(labelsMap){
+  const svg = document.getElementById('taxonomySvg');
+  const entries = Object.entries(labelsMap || {});
+  if (!entries.length) {
+    svg.innerHTML = `<text class="g-label" x="20" y="30">Taxonomy unavailable.</text>`;
+    return;
+  }
+
+  const W = 760, H = 260;
+  const root = {x: 130, y: H/2, label: 'MVP Taxonomy'};
+  const yGap = H / (entries.length + 1);
+  const nodes = entries.map((e, i) => ({x: 520, y: yGap * (i+1), label: e[0], rule: e[1]?.rule || ''}));
+
+  const lines = nodes.map(n => `<line class="g-link" x1="${root.x+30}" y1="${root.y}" x2="${n.x-26}" y2="${n.y}"/>`).join('');
+  const rootNode = `<rect x="${root.x-62}" y="${root.y-18}" width="124" height="36" rx="10" fill="#123064" stroke="#5B8DFF"/>
+                    <text class="g-label" x="${root.x-44}" y="${root.y+5}">${root.label}</text>`;
+  const leaves = nodes.map(n => `
+    <rect x="${n.x-56}" y="${n.y-16}" width="112" height="32" rx="10" fill="#182844" stroke="#3B82F6"/>
+    <text class="g-label" x="${n.x-44}" y="${n.y+4}">${n.label}</text>
+  `).join('');
+
+  svg.innerHTML = `${lines}${rootNode}${leaves}`;
+
+  const notes = entries.map(([k,v]) => `<div class="row"><span>${k}</span><span class="muted">${v?.rule || ''}</span></div>`).join('');
+  document.getElementById('taxonomyMeta').innerHTML = notes;
+}
+
+async function loadFlowGraph(address) {
+  if (!address) return renderFlowGraph({nodes:[],edges:[]}, '');
   const data = await jfetch(`/graph/neighbors/${address}?limit=30`);
-  renderGraph(data, address);
+  renderFlowGraph(data, address);
+}
+
+async function loadTaxonomy() {
+  const data = await jfetch('/labels/taxonomy');
+  renderTaxonomyMap(data.labels || {});
 }
 
 async function refresh() {
@@ -157,7 +193,9 @@ async function refresh() {
   const seedAddress = ((summary.summary||{}).hot_alerts||[])[0]?.address || ((summary.summary||{}).top_alert_addresses_24h||[])[0]?.address;
   if (seedAddress) {
     document.getElementById('graphAddress').value = seedAddress;
-    await loadGraph(seedAddress);
+    await loadFlowGraph(seedAddress);
+  } else {
+    renderFlowGraph({nodes:[],edges:[]}, '');
   }
 
   document.getElementById('healthDot').style.background = 'var(--ok)';
@@ -170,36 +208,16 @@ async function applyPreset(name) {
   await refresh();
 }
 
-async function ackAlert(id) {
-  await jfetch(`/alerts/${id}/ack?assignee=ui`, { method: 'POST' });
-  await refresh();
-}
-
-async function resolveAlert(id) {
-  await jfetch(`/alerts/${id}/resolve?assignee=ui`, { method: 'POST' });
-  await refresh();
-}
-
-async function retryFailure(id) {
-  await jfetch(`/runbook/failures/${id}/retry`, { method: 'POST' });
-  await refresh();
-}
-
-async function resolveFailure(id) {
-  await jfetch(`/runbook/failures/${id}/resolve`, { method: 'POST' });
-  await refresh();
-}
-
-async function openRisk(address) {
-  if (!address) return;
-  const data = await jfetch(`/entity/${address}/risk`);
-  renderRisk(data);
-}
+async function ackAlert(id) { await jfetch(`/alerts/${id}/ack?assignee=ui`, { method: 'POST' }); await refresh(); }
+async function resolveAlert(id) { await jfetch(`/alerts/${id}/resolve?assignee=ui`, { method: 'POST' }); await refresh(); }
+async function retryFailure(id) { await jfetch(`/runbook/failures/${id}/retry`, { method: 'POST' }); await refresh(); }
+async function resolveFailure(id) { await jfetch(`/runbook/failures/${id}/resolve`, { method: 'POST' }); await refresh(); }
+async function openRisk(address) { if (!address) return; const data = await jfetch(`/entity/${address}/risk`); renderRisk(data); }
 
 function bindActions() {
   document.getElementById('refreshBtn').addEventListener('click', () => runSafe(refresh));
   document.getElementById('closeDrawer').addEventListener('click', () => document.getElementById('riskDrawer').classList.add('hidden'));
-  document.getElementById('graphLoadBtn').addEventListener('click', () => runSafe(() => loadGraph(document.getElementById('graphAddress').value.trim())));
+  document.getElementById('graphLoadBtn').addEventListener('click', () => runSafe(() => loadFlowGraph(document.getElementById('graphAddress').value.trim())));
 
   document.body.addEventListener('click', async (e) => {
     const t = e.target;
@@ -208,18 +226,19 @@ function bindActions() {
     if (t.matches('.act-resolve')) return runSafe(() => resolveAlert(t.dataset.id));
     if (t.matches('.fail-retry')) return runSafe(() => retryFailure(t.dataset.id));
     if (t.matches('.fail-resolve')) return runSafe(() => resolveFailure(t.dataset.id));
-    if (t.matches('.addr-btn')) return runSafe(async () => { await openRisk(t.dataset.address); document.getElementById('graphAddress').value = t.dataset.address; await loadGraph(t.dataset.address); });
+    if (t.matches('.addr-btn')) return runSafe(async () => { await openRisk(t.dataset.address); document.getElementById('graphAddress').value = t.dataset.address; await loadFlowGraph(t.dataset.address); });
   });
 }
 
 async function runSafe(fn) {
-  try {
-    await fn();
-  } catch (e) {
+  try { await fn(); }
+  catch (e) {
     document.getElementById('healthDot').style.background = 'var(--crit)';
     document.getElementById('lastUpdated').textContent = `error: ${String(e.message || e).slice(0,120)}`;
   }
 }
 
 bindActions();
-runSafe(refresh);
+runSafe(async () => {
+  await Promise.all([refresh(), loadTaxonomy()]);
+});
