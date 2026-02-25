@@ -19,6 +19,8 @@ cp .env.example .env
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+python scripts/migrate.py
+export SCHEMA_VERSION=0001_init.sql
 uvicorn api.main:app --reload --port 8080
 ```
 

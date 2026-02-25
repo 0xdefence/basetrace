@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from api.routes.graph import router as graph_router
+from api.services.db import assert_expected_schema_version
 from api.routes.labels import router as labels_router
 from api.routes.alerts import router as alerts_router
 from api.routes.entity import router as entity_router
@@ -20,6 +21,11 @@ app = FastAPI(title="BaseTrace API", version="0.1.0")
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
 if WEB_DIR.exists():
     app.mount("/ui", StaticFiles(directory=str(WEB_DIR), html=True), name="ui")
+
+
+@app.on_event("startup")
+def _schema_guard():
+    assert_expected_schema_version()
 
 
 @app.get("/health")
