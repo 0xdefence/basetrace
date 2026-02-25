@@ -56,9 +56,23 @@ CREATE TABLE IF NOT EXISTS ingest_state (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS alerts (
+  id BIGSERIAL PRIMARY KEY,
+  type TEXT NOT NULL,
+  address TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  confidence NUMERIC NOT NULL,
+  evidence JSONB,
+  fingerprint TEXT,
+  status TEXT DEFAULT 'new',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_tx_block ON transactions(block_number);
 CREATE INDEX IF NOT EXISTS idx_transfer_block ON token_transfers(block_number);
 CREATE INDEX IF NOT EXISTS idx_labels_address ON labels(address);
 CREATE INDEX IF NOT EXISTS idx_edges_src_dst ON edges(src_address, dst_address);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_transfer_natural
   ON token_transfers(tx_hash, token_address, from_address, to_address, amount, block_number);
+CREATE INDEX IF NOT EXISTS idx_alerts_address_created ON alerts(address, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_type_created ON alerts(type, created_at DESC);

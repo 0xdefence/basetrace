@@ -1,5 +1,7 @@
-from api.services.db import get_conn
+import hashlib
+import json
 
+from api.services.db import get_conn
 
 BRIDGES = {
     "0x4200000000000000000000000000000000000010",  # L2StandardBridge
@@ -7,11 +9,51 @@ BRIDGES = {
 }
 
 
-def recent_alerts(limit: int = 20):
-    """24h vs prior-24h delta alerting.
+def _fingerprint(alert: dict) -> str:
+    base = {
+        "type": alert.get("type"),
+        "address": (alert.get("address") or "").lower(),
+        "window": (alert.get("evidence") or {}).get("window"),
+    }
+    return hashlib.sha256(json.dumps(base, sort_keys=True).encode()).hexdigest()[:16]
 
-    Uses transactions table as stable source for window comparisons.
-    """
+
+def _persist_alerts(candidates: list[dict], dedupe_hours: int = 6):
+    if not candidates:
+        return
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for a in candidates:
+            fp = _fingerprint(a)
+            cur.execute(
+                """
+                SELECT 1 FROM alerts
+                WHERE fingerprint = %s
+                  AND created_at >= now() - (%s || ' hours')::interval
+                LIMIT 1
+                """,
+                (fp, dedupe_hours),
+            )
+            if cur.fetchone():
+                continue
+
+            cur.execute(
+                """
+                INSERT INTO alerts(type, address, severity, confidence, evidence, fingerprint)
+                VALUES(%s, %s, %s, %s, %s::jsonb, %s)
+                """,
+                (
+                    a.get("type"),
+                    (a.get("address") or "").lower(),
+                    a.get("severity", "medium"),
+                    float(a.get("confidence", 0.5)),
+                    json.dumps(a.get("evidence", {})),
+                    fp,
+                ),
+            )
+
+
+def _generate_alert_candidates(limit: int = 20):
     alerts = []
     with get_conn() as conn:
         cur = conn.cursor()
@@ -200,7 +242,64 @@ def recent_alerts(limit: int = 20):
                     }
                 )
 
-    # sort by confidence desc then severity
-    sev_rank = {"high": 3, "medium": 2, "low": 1}
-    alerts.sort(key=lambda x: (x.get("confidence", 0), sev_rank.get(x.get("severity", "low"), 1)), reverse=True)
-    return alerts[:limit]
+    return alerts
+
+
+def recent_alerts(limit: int = 20):
+    candidates = _generate_alert_candidates(limit=max(limit, 50))
+    _persist_alerts(candidates)
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT type, address, severity, confidence, evidence, status, created_at
+            FROM alerts
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "type": t,
+            "address": a,
+            "severity": s,
+            "confidence": float(c or 0),
+            "evidence": e or {},
+            "status": st,
+            "created_at": created.isoformat() if created else None,
+        }
+        for t, a, s, c, e, st, created in rows
+    ]
+
+
+def alerts_for_address(address: str, limit: int = 20):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT type, address, severity, confidence, evidence, status, created_at
+            FROM alerts
+            WHERE address = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (address.lower(), limit),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "type": t,
+            "address": a,
+            "severity": s,
+            "confidence": float(c or 0),
+            "evidence": e or {},
+            "status": st,
+            "created_at": created.isoformat() if created else None,
+        }
+        for t, a, s, c, e, st, created in rows
+    ]

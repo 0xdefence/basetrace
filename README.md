@@ -35,10 +35,14 @@ Services:
 
 ## Endpoints (v0)
 - `GET /health`
+- `GET /metrics`
 - `GET /graph/neighbors/{address}`
 - `GET /labels/{address}`
 - `GET /entity/{address}`
+- `GET /search?q=...`
+- `GET /cluster/{address}`
 - `GET /alerts/recent`
+- `GET /alerts/{address}`
 
 ## Roadmap
 See `docs/roadmap.md` and `docs/architecture.md`.
