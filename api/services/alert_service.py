@@ -245,61 +245,102 @@ def _generate_alert_candidates(limit: int = 20):
     return alerts
 
 
-def recent_alerts(limit: int = 20):
+def _format_rows(rows):
+    return [
+        {
+            "id": int(i),
+            "type": t,
+            "address": a,
+            "severity": s,
+            "confidence": float(c or 0),
+            "evidence": e or {},
+            "status": st,
+            "created_at": created.isoformat() if created else None,
+        }
+        for i, t, a, s, c, e, st, created in rows
+    ]
+
+
+def recent_alerts(limit: int = 20, status: str | None = None):
     candidates = _generate_alert_candidates(limit=max(limit, 50))
     _persist_alerts(candidates)
 
     with get_conn() as conn:
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT type, address, severity, confidence, evidence, status, created_at
-            FROM alerts
-            ORDER BY created_at DESC
-            LIMIT %s
-            """,
-            (limit,),
-        )
+        if status:
+            cur.execute(
+                """
+                SELECT id, type, address, severity, confidence, evidence, status, created_at
+                FROM alerts
+                WHERE status = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (status, limit),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, type, address, severity, confidence, evidence, status, created_at
+                FROM alerts
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
         rows = cur.fetchall()
 
-    return [
-        {
-            "type": t,
-            "address": a,
-            "severity": s,
-            "confidence": float(c or 0),
-            "evidence": e or {},
-            "status": st,
-            "created_at": created.isoformat() if created else None,
-        }
-        for t, a, s, c, e, st, created in rows
-    ]
+    return _format_rows(rows)
 
 
-def alerts_for_address(address: str, limit: int = 20):
+def alerts_for_address(address: str, limit: int = 20, status: str | None = None):
+    with get_conn() as conn:
+        cur = conn.cursor()
+        if status:
+            cur.execute(
+                """
+                SELECT id, type, address, severity, confidence, evidence, status, created_at
+                FROM alerts
+                WHERE address = %s AND status = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (address.lower(), status, limit),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, type, address, severity, confidence, evidence, status, created_at
+                FROM alerts
+                WHERE address = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (address.lower(), limit),
+            )
+        rows = cur.fetchall()
+
+    return _format_rows(rows)
+
+
+def update_alert_status(alert_id: int, status: str):
+    if status not in {"new", "ack", "resolved"}:
+        raise ValueError("invalid status")
+
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT type, address, severity, confidence, evidence, status, created_at
-            FROM alerts
-            WHERE address = %s
-            ORDER BY created_at DESC
-            LIMIT %s
+            UPDATE alerts
+            SET status = %s
+            WHERE id = %s
+            RETURNING id, type, address, severity, confidence, evidence, status, created_at
             """,
-            (address.lower(), limit),
+            (status, alert_id),
         )
-        rows = cur.fetchall()
+        row = cur.fetchone()
 
-    return [
-        {
-            "type": t,
-            "address": a,
-            "severity": s,
-            "confidence": float(c or 0),
-            "evidence": e or {},
-            "status": st,
-            "created_at": created.isoformat() if created else None,
-        }
-        for t, a, s, c, e, st, created in rows
-    ]
+    if not row:
+        return None
+
+    return _format_rows([row])[0]

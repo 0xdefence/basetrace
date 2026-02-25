@@ -6,10 +6,15 @@ router = APIRouter()
 
 
 @router.get("/recent")
-def recent(limit: int = 20):
-    return {"limit": limit, "alerts": recent_alerts(limit=limit)}
+def recent(limit: int = 20, status: str | None = None):
+    return {"limit": limit, "status": status, "alerts": recent_alerts(limit=limit, status=status)}
 
 
 @router.get("/{address}")
-def by_address(address: str, limit: int = 20):
-    return {"address": address.lower(), "limit": limit, "alerts": alerts_for_address(address, limit=limit)}
+def by_address(address: str, limit: int = 20, status: str | None = None):
+    return {
+        "address": address.lower(),
+        "limit": limit,
+        "status": status,
+        "alerts": alerts_for_address(address, limit=limit, status=status),
+    }

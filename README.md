@@ -41,8 +41,10 @@ Services:
 - `GET /entity/{address}`
 - `GET /search?q=...`
 - `GET /cluster/{address}`
-- `GET /alerts/recent`
-- `GET /alerts/{address}`
+- `GET /alerts/recent?status=new|ack|resolved`
+- `GET /alerts/{address}?status=new|ack|resolved`
+- `POST /alerts/{id}/ack`
+- `POST /alerts/{id}/resolve`
 
 ## Roadmap
 See `docs/roadmap.md` and `docs/architecture.md`.
