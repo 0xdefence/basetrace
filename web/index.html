@@ -62,6 +62,20 @@
               <button id="graphLoadKnownBtn" class="secondary" type="button">Load Known</button>
             </div>
           </div>
+          <div class="inline-actions graph-controls">
+            <label class="muted">Min tx_count <input id="graphMinTx" type="number" min="0" value="1" /></label>
+            <label class="muted">Direction
+              <select id="graphDirection">
+                <option value="both">both</option>
+                <option value="out">outbound</option>
+                <option value="in">inbound</option>
+              </select>
+            </label>
+            <button id="graphApplyFiltersBtn" class="secondary" type="button">Apply filters</button>
+            <button id="graphZoomOutBtn" class="secondary" type="button">-</button>
+            <button id="graphZoomInBtn" class="secondary" type="button">+</button>
+            <button id="graphResetBtn" class="secondary" type="button">Reset view</button>
+          </div>
           <svg id="graphSvg" viewBox="0 0 760 340"></svg>
           <div id="graphMeta" class="muted tiny"></div>
         </section>
