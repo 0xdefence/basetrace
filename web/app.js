@@ -28,6 +28,27 @@ async function jfetch(path, options = {}) {
 const shortAddr = (a = '') => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '');
 const sevClass = (s) => (s === 'high' ? 'high' : s === 'medium' ? 'medium' : 'low');
 
+function toast(message, kind = 'ok') {
+  const host = document.getElementById('toastHost');
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = message;
+  host.appendChild(el);
+  setTimeout(() => el.remove(), 2800);
+}
+
+function setBusy(on) {
+  document.querySelectorAll('button').forEach((b) => { b.disabled = on; });
+}
+
+function setLoadingState(on) {
+  ['kpis', 'hotAlerts', 'runbookOps', 'failures', 'topAddresses'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('skeleton', on);
+  });
+}
+
 function showPanel(name) {
   document.querySelectorAll('.panel-view').forEach((el) => el.classList.remove('active'));
   document.querySelector(`#panel-${name}`)?.classList.add('active');
@@ -162,39 +183,56 @@ async function openRisk(address) {
   const risk = await jfetch(`/entity/${address}/risk`);
   const f = risk.factors || {};
   document.getElementById('riskContent').innerHTML = `<div class="row"><span>Address</span><strong>${shortAddr(risk.address)}</strong></div><div class="row"><span>Risk Score</span><strong>${risk.risk_score} (${risk.band})</strong></div><div class="factor"><span>Label</span><strong>${f.label_risk ?? 0}</strong></div><div class="factor"><span>Alert</span><strong>${f.alert_risk ?? 0}</strong></div><div class="factor"><span>Centrality</span><strong>${f.centrality_risk ?? 0}</strong></div><div class="factor"><span>Flow</span><strong>${f.flow_risk ?? 0}</strong></div>`;
-  document.getElementById('riskDrawer').classList.remove('hidden');
+  const drawer = document.getElementById('riskDrawer');
+  drawer.classList.remove('hidden');
+  drawer.focus();
 }
 
 async function refreshAll() {
-  const [summary, failures, taxonomy] = await Promise.all([
-    jfetch('/dashboard/summary?hot_limit=20'),
-    jfetch('/runbook/failures?limit=20'),
-    jfetch('/labels/taxonomy'),
-  ]);
-  const seed = (summary.summary?.hot_alerts || [])[0]?.address || '';
-  let graph = store.state.graph;
-  if (seed && !graph.center) {
-    const g = await jfetch(`/graph/neighbors/${seed}?limit=40`);
-    graph = { ...g, center: seed.toLowerCase() };
-    document.getElementById('graphAddress').value = seed;
+  setLoadingState(true);
+  try {
+    const [summary, failures, taxonomy] = await Promise.all([
+      jfetch('/dashboard/summary?hot_limit=20'),
+      jfetch('/runbook/failures?limit=20'),
+      jfetch('/labels/taxonomy'),
+    ]);
+    const seed = (summary.summary?.hot_alerts || [])[0]?.address || '';
+    let graph = store.state.graph;
+    if (seed && !graph.center) {
+      const g = await jfetch(`/graph/neighbors/${seed}?limit=40`);
+      graph = { ...g, center: seed.toLowerCase() };
+      document.getElementById('graphAddress').value = seed;
+    }
+    store.set({ summary, failures: failures.failures || [], taxonomy: taxonomy.labels || {}, graph });
+    document.getElementById('healthDot').style.background = 'var(--ok)';
+    document.getElementById('lastUpdated').textContent = new Date().toISOString();
+    document.getElementById('statusBar').textContent = `lag=${summary.compact?.ingest_lag_blocks ?? 'n/a'} | dead-letter=${summary.compact?.dead_letter_open ?? 0}`;
+    document.getElementById('degradedBanner').classList.add('hidden');
+  } catch (e) {
+    document.getElementById('degradedBanner').classList.remove('hidden');
+    throw e;
+  } finally {
+    setLoadingState(false);
   }
-  store.set({ summary, failures: failures.failures || [], taxonomy: taxonomy.labels || {}, graph });
-  document.getElementById('healthDot').style.background = 'var(--ok)';
-  document.getElementById('lastUpdated').textContent = new Date().toISOString();
-  document.getElementById('statusBar').textContent = `lag=${summary.compact?.ingest_lag_blocks ?? 'n/a'} | dead-letter=${summary.compact?.dead_letter_open ?? 0}`;
 }
 
 async function runSafe(fn) {
-  try { await fn(); }
-  catch (e) {
+  setBusy(true);
+  try {
+    await fn();
+  } catch (e) {
     document.getElementById('healthDot').style.background = 'var(--crit)';
     document.getElementById('lastUpdated').textContent = `error: ${String(e.message || e).slice(0, 120)}`;
+    toast(String(e.message || e).slice(0, 140), 'err');
+  } finally {
+    setBusy(false);
   }
 }
 
 function bind() {
   document.getElementById('refreshBtn').addEventListener('click', () => runSafe(refreshAll));
   document.getElementById('closeDrawer').addEventListener('click', () => document.getElementById('riskDrawer').classList.add('hidden'));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.getElementById('riskDrawer').classList.add('hidden'); });
 
   document.getElementById('panelNav').addEventListener('click', (e) => {
     const b = e.target.closest('.nav-btn'); if (!b) return; store.set({ activePanel: b.dataset.panel });
@@ -217,11 +255,11 @@ function bind() {
 
   document.body.addEventListener('click', (e) => runSafe(async () => {
     const t = e.target;
-    if (t.matches('[data-preset]')) { await jfetch(`/runbook/threshold-presets/${t.dataset.preset}`, { method: 'POST' }); document.getElementById('presetStatus').textContent = `Applied preset: ${t.dataset.preset}`; return refreshAll(); }
-    if (t.matches('.act-ack')) { await jfetch(`/alerts/${t.dataset.id}/ack?assignee=ui`, { method: 'POST' }); return refreshAll(); }
-    if (t.matches('.act-resolve')) { await jfetch(`/alerts/${t.dataset.id}/resolve?assignee=ui`, { method: 'POST' }); return refreshAll(); }
-    if (t.matches('.fail-retry')) { await jfetch(`/runbook/failures/${t.dataset.id}/retry`, { method: 'POST' }); return refreshAll(); }
-    if (t.matches('.fail-resolve')) { await jfetch(`/runbook/failures/${t.dataset.id}/resolve`, { method: 'POST' }); return refreshAll(); }
+    if (t.matches('[data-preset]')) { await jfetch(`/runbook/threshold-presets/${t.dataset.preset}`, { method: 'POST' }); document.getElementById('presetStatus').textContent = `Applied preset: ${t.dataset.preset}`; toast(`Preset applied: ${t.dataset.preset}`); return refreshAll(); }
+    if (t.matches('.act-ack')) { await jfetch(`/alerts/${t.dataset.id}/ack?assignee=ui`, { method: 'POST' }); toast(`Alert ${t.dataset.id} acknowledged`); return refreshAll(); }
+    if (t.matches('.act-resolve')) { await jfetch(`/alerts/${t.dataset.id}/resolve?assignee=ui`, { method: 'POST' }); toast(`Alert ${t.dataset.id} resolved`); return refreshAll(); }
+    if (t.matches('.fail-retry')) { await jfetch(`/runbook/failures/${t.dataset.id}/retry`, { method: 'POST' }); toast(`Failure ${t.dataset.id} queued for retry`); return refreshAll(); }
+    if (t.matches('.fail-resolve')) { await jfetch(`/runbook/failures/${t.dataset.id}/resolve`, { method: 'POST' }); toast(`Failure ${t.dataset.id} resolved`); return refreshAll(); }
     if (t.matches('.addr-btn')) { const address = t.dataset.address; if (address) { await openRisk(address); await loadGraph(address); } }
     if (t.matches('.g-click')) { const address = t.dataset.node; if (address) await openRisk(address); }
   }));
