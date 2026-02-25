@@ -1,9 +1,10 @@
-"""Base chain ingestion worker v1.
+"""Base chain ingestion worker.
 
-- Pulls blocks/txs from Base RPC
-- Persists txs, address stats, and edge aggregates
-- Extracts ERC20 Transfer logs per block (chunk-ready)
-- Supports RPC fallback + retry/backoff
+Features:
+- block/tx ingestion
+- adaptive eth_getLogs chunking for ERC20 Transfer backfills
+- dead-letter tracking in ingest_failures
+- replay mode for failed ranges
 """
 
 import os
@@ -14,10 +15,10 @@ import httpx
 import psycopg2
 from dotenv import load_dotenv
 
-TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55aebf8a5b84"  # ERC20 Transfer
+TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55aebf8a5b84"
 
 
-def h2i(x: str) -> int:
+def h2i(x):
     if x is None:
         return 0
     if isinstance(x, int):
@@ -54,14 +55,22 @@ def ensure_state(conn):
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ingest_failures (
+          id BIGSERIAL PRIMARY KEY,
+          stage TEXT NOT NULL,
+          start_block BIGINT,
+          end_block BIGINT,
+          error TEXT,
+          retry_count INT DEFAULT 0,
+          status TEXT DEFAULT 'open',
+          created_at TIMESTAMPTZ DEFAULT now(),
+          updated_at TIMESTAMPTZ DEFAULT now()
+        )
+        """
+    )
     conn.commit()
-
-
-def get_last_block(conn) -> int:
-    cur = conn.cursor()
-    cur.execute("SELECT value FROM ingest_state WHERE key='last_block'")
-    row = cur.fetchone()
-    return int(row[0]) if row and row[0] else -1
 
 
 def set_state(conn, key: str, value: str):
@@ -76,8 +85,42 @@ def set_state(conn, key: str, value: str):
     )
 
 
-def set_last_block(conn, block_number: int):
-    set_state(conn, "last_block", str(block_number))
+def get_state_int(conn, key: str, default: int = -1) -> int:
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM ingest_state WHERE key=%s", (key,))
+    row = cur.fetchone()
+    return int(row[0]) if row and row[0] else default
+
+
+def add_failure(conn, stage: str, start_block: int, end_block: int, error: str):
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO ingest_failures(stage, start_block, end_block, error, status, updated_at)
+        VALUES(%s,%s,%s,%s,'open',now())
+        """,
+        (stage, start_block, end_block, error[:1000]),
+    )
+
+
+def mark_failure_resolved(conn, failure_id: int):
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE ingest_failures SET status='resolved', updated_at=now() WHERE id=%s",
+        (failure_id,),
+    )
+
+
+def bump_failure_retry(conn, failure_id: int, error: str):
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE ingest_failures
+        SET retry_count = retry_count + 1, error=%s, updated_at=now()
+        WHERE id=%s
+        """,
+        (error[:1000], failure_id),
+    )
 
 
 def upsert_address(cur, address: str, block_number: int, tx_inc: int = 0, deploy_inc: int = 0):
@@ -98,15 +141,14 @@ def upsert_address(cur, address: str, block_number: int, tx_inc: int = 0, deploy
     )
 
 
-def ingest_block(conn, client, rpc_urls: list[str], block_number: int):
+def ingest_block_txs(conn, client, rpc_urls: list[str], block_number: int):
     block_hex = hex(block_number)
     block, rpc_used, rpc_attempt = rpc_call(client, rpc_urls, "eth_getBlockByNumber", [block_hex, True])
     if not block:
-        return 0, 0
+        return 0
 
     ts = datetime.fromtimestamp(h2i(block.get("timestamp", "0x0")), tz=timezone.utc)
     txs = block.get("transactions", [])
-
     cur = conn.cursor()
     tx_count = 0
 
@@ -143,15 +185,14 @@ def ingest_block(conn, client, rpc_urls: list[str], block_number: int):
 
         tx_count += 1
 
-    # Pull Transfer logs for this block (chunk-ready shape)
-    logs, rpc_used_logs, rpc_attempt_logs = rpc_call(
-        client,
-        rpc_urls,
-        "eth_getLogs",
-        [{"fromBlock": block_hex, "toBlock": block_hex, "topics": [TRANSFER_TOPIC]}],
-    ) or ([], rpc_used, rpc_attempt)
+    set_state(conn, "current_rpc", rpc_used)
+    set_state(conn, "last_rpc_attempt", str(rpc_attempt))
+    return tx_count
 
-    transfer_count = 0
+
+def _insert_logs(conn, logs: list):
+    cur = conn.cursor()
+    n = 0
     for lg in logs:
         topics = lg.get("topics") or []
         if len(topics) < 3:
@@ -161,6 +202,8 @@ def ingest_block(conn, client, rpc_urls: list[str], block_number: int):
         to_addr = "0x" + topics[2][-40:]
         amount = h2i(lg.get("data", "0x0"))
         tx_hash = lg.get("transactionHash")
+        block_number = h2i(lg.get("blockNumber", "0x0"))
+        ts = datetime.now(timezone.utc)
 
         cur.execute(
             """
@@ -170,16 +213,70 @@ def ingest_block(conn, client, rpc_urls: list[str], block_number: int):
             """,
             (tx_hash, token, from_addr.lower(), to_addr.lower(), amount, block_number, ts),
         )
-        transfer_count += 1
+        n += 1
+    return n
 
-    set_last_block(conn, block_number)
-    set_state(conn, "current_rpc", rpc_used)
-    set_state(conn, "last_rpc_attempt", str(rpc_attempt))
-    set_state(conn, "last_logs_rpc", rpc_used_logs)
-    set_state(conn, "last_logs_rpc_attempt", str(rpc_attempt_logs))
-    set_state(conn, "last_error", "")
-    conn.commit()
-    return tx_count, transfer_count
+
+def fetch_logs_adaptive(conn, client, rpc_urls: list[str], start_block: int, end_block: int, min_chunk: int = 1):
+    """Adaptive range chunking for eth_getLogs backfills."""
+    total = 0
+    stack = [(start_block, end_block)]
+
+    while stack:
+        s, e = stack.pop()
+        if s > e:
+            continue
+        try:
+            result, rpc_used, rpc_attempt = rpc_call(
+                client,
+                rpc_urls,
+                "eth_getLogs",
+                [{
+                    "fromBlock": hex(s),
+                    "toBlock": hex(e),
+                    "topics": [TRANSFER_TOPIC],
+                }],
+            )
+            logs = result or []
+            total += _insert_logs(conn, logs)
+            set_state(conn, "last_logs_rpc", rpc_used)
+            set_state(conn, "last_logs_rpc_attempt", str(rpc_attempt))
+            set_state(conn, "last_error", "")
+        except Exception as ex:
+            if s == e or (e - s + 1) <= min_chunk:
+                add_failure(conn, "logs", s, e, str(ex))
+            else:
+                mid = (s + e) // 2
+                stack.append((s, mid))
+                stack.append((mid + 1, e))
+    return total
+
+
+def replay_failures(conn, client, rpc_urls: list[str], max_rows: int = 25):
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, stage, start_block, end_block, retry_count
+        FROM ingest_failures
+        WHERE status='open'
+        ORDER BY created_at ASC
+        LIMIT %s
+        """,
+        (max_rows,),
+    )
+    rows = cur.fetchall()
+    resolved = 0
+    for fid, stage, s, e, _ in rows:
+        try:
+            if stage == "logs":
+                fetch_logs_adaptive(conn, client, rpc_urls, int(s), int(e))
+                mark_failure_resolved(conn, int(fid))
+                resolved += 1
+            else:
+                mark_failure_resolved(conn, int(fid))
+        except Exception as ex:
+            bump_failure_retry(conn, int(fid), str(ex))
+    return resolved, len(rows)
 
 
 def run_ingest_loop():
@@ -192,6 +289,8 @@ def run_ingest_loop():
     dsn = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/basetrace")
     confirmations = int(os.getenv("INGEST_CONFIRMATIONS", "3"))
     start_block_env = int(os.getenv("INGEST_START_BLOCK", "0"))
+    log_chunk = int(os.getenv("INGEST_LOG_CHUNK", "200"))
+    replay_mode = os.getenv("INGEST_REPLAY_MODE", "0") == "1"
 
     conn = psycopg2.connect(dsn)
     ensure_state(conn)
@@ -202,20 +301,42 @@ def run_ingest_loop():
                 head_hex, head_rpc, head_attempt = rpc_call(client, rpc_urls, "eth_blockNumber", [])
                 head = h2i(head_hex)
                 safe_head = max(0, head - confirmations)
-                last = get_last_block(conn)
+
+                # tx stream pointer
+                last = get_state_int(conn, "last_block", -1)
                 nxt = max(start_block_env, last + 1)
+
+                # logs pointer (separate for chunked backfill)
+                last_logs = get_state_int(conn, "last_logs_block", start_block_env - 1)
+                logs_next = max(start_block_env, last_logs + 1)
 
                 set_state(conn, "head_rpc", head_rpc)
                 set_state(conn, "head_rpc_attempt", str(head_attempt))
 
-                if nxt > safe_head:
-                    print(f"[ingest] up-to-date last={last} safe_head={safe_head}")
+                if replay_mode:
+                    res, scanned = replay_failures(conn, client, rpc_urls)
                     conn.commit()
+                    print(f"[replay] resolved={res}/{scanned}")
                     time.sleep(5)
                     continue
 
-                txc, trc = ingest_block(conn, client, rpc_urls, nxt)
-                print(f"[ingest] block={nxt} tx={txc} transfers={trc}")
+                if nxt <= safe_head:
+                    txc = ingest_block_txs(conn, client, rpc_urls, nxt)
+                    set_state(conn, "last_block", str(nxt))
+                    conn.commit()
+                    print(f"[ingest] tx block={nxt} tx={txc}")
+
+                if logs_next <= safe_head:
+                    end = min(safe_head, logs_next + log_chunk - 1)
+                    trc = fetch_logs_adaptive(conn, client, rpc_urls, logs_next, end)
+                    set_state(conn, "last_logs_block", str(end))
+                    conn.commit()
+                    print(f"[ingest] logs {logs_next}-{end} transfers={trc}")
+
+                if nxt > safe_head and logs_next > safe_head:
+                    print(f"[ingest] up-to-date last_tx={last} last_logs={last_logs} safe_head={safe_head}")
+                    time.sleep(4)
+
             except Exception as e:
                 set_state(conn, "last_error", str(e)[:800])
                 conn.commit()

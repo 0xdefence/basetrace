@@ -56,6 +56,18 @@ CREATE TABLE IF NOT EXISTS ingest_state (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS ingest_failures (
+  id BIGSERIAL PRIMARY KEY,
+  stage TEXT NOT NULL,
+  start_block BIGINT,
+  end_block BIGINT,
+  error TEXT,
+  retry_count INT DEFAULT 0,
+  status TEXT DEFAULT 'open',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS alerts (
   id BIGSERIAL PRIMARY KEY,
   type TEXT NOT NULL,
@@ -71,6 +83,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS idx_ingest_failures_status ON ingest_failures(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tx_block ON transactions(block_number);
 CREATE INDEX IF NOT EXISTS idx_transfer_block ON token_transfers(block_number);
 CREATE INDEX IF NOT EXISTS idx_labels_address ON labels(address);

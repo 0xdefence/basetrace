@@ -33,6 +33,11 @@ Services:
 - Postgres: `localhost:5432`
 - Ingestor worker: continuous block + log ingestion
 
+Replay failed ranges only:
+```bash
+INGEST_REPLAY_MODE=1 docker compose up ingestor
+```
+
 ## Endpoints (v0)
 - `GET /health`
 - `GET /metrics`
