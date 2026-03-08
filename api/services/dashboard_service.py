@@ -59,6 +59,13 @@ def dashboard_summary(hot_limit: int = 5):
         )
         hot_addr_rows = cur.fetchall()
 
+        waitlist_signups = 0
+        try:
+            cur.execute("SELECT COUNT(*) FROM waitlist_signups")
+            waitlist_signups = int(cur.fetchone()[0] or 0)
+        except Exception:
+            waitlist_signups = 0
+
     hot_alerts = [
         {
             "id": int(i),
@@ -107,7 +114,7 @@ def dashboard_summary(hot_limit: int = 5):
                     "alert_acknowledged_rate": round(ack_rate, 4),
                 },
                 "gtm": {
-                    "waitlist_signups": None,
+                    "waitlist_signups": waitlist_signups,
                     "demos_booked": None,
                     "weekly_returning_users": None,
                 },

@@ -60,6 +60,8 @@ INGEST_REPLAY_MODE=1 docker compose up ingestor
 - `GET /entity/{address}`
 - `GET /entity/{address}/risk`
 - `GET /dashboard/summary`
+- `POST /alpha/waitlist`
+- `GET /alpha/waitlist/stats`
 - `GET /search?q=...`
 - `GET /cluster/{address}`
 - `GET /alerts/recent?status=new|ack|resolved`

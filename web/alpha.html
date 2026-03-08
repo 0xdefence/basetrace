@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BaseTrace Alpha</title>
+  <style>
+    body{font-family:Inter,system-ui,sans-serif;margin:0;background:#0a0f16;color:#e9f0f8}
+    .wrap{max-width:760px;margin:48px auto;padding:0 16px}
+    .card{background:#131c28;border:1px solid #273446;border-radius:12px;padding:20px}
+    h1{margin:0 0 8px;color:#f6b24f} p{color:#9eb0c4}
+    input,button{padding:10px 12px;border-radius:8px;border:1px solid #2d3c50;background:#0d1520;color:#e9f0f8}
+    button{background:#f6b24f;color:#111;font-weight:700;cursor:pointer}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    .ok{color:#89e3a4;margin-top:10px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>BaseTrace Alpha</h1>
+      <p>Base-first security intel graph for defenders. Join alpha waitlist.</p>
+      <div class="row">
+        <input id="email" type="email" placeholder="you@company.com" />
+        <button id="join">Join waitlist</button>
+      </div>
+      <div id="msg" class="ok"></div>
+    </div>
+  </div>
+  <script>
+    document.getElementById('join').onclick = async () => {
+      const email = document.getElementById('email').value.trim();
+      const msg = document.getElementById('msg');
+      if (!email) return;
+      const r = await fetch('/alpha/waitlist', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ email, source:'alpha_page' }) });
+      const j = await r.json();
+      msg.textContent = j.ok ? 'Added. We will reach out soon.' : 'Failed, try again.';
+    };
+  </script>
+</body>
+</html>

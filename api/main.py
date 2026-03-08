@@ -15,6 +15,7 @@ from api.routes.alerts_actions import router as alerts_actions_router
 from api.routes.runbook import router as runbook_router
 from api.routes.risk import router as risk_router
 from api.routes.dashboard import router as dashboard_router
+from api.routes.alpha import router as alpha_router
 
 app = FastAPI(title="BaseTrace API", version="0.1.0")
 
@@ -44,3 +45,4 @@ app.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
 app.include_router(runbook_router, prefix="/runbook", tags=["runbook"])
 app.include_router(risk_router, prefix="/entity", tags=["risk"])
 app.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
+app.include_router(alpha_router, prefix="/alpha", tags=["alpha"])
