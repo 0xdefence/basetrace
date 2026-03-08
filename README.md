@@ -46,6 +46,8 @@ INGEST_REPLAY_MODE=1 docker compose up ingestor
 - `GET /metrics`
 - `GET /runbook/ingest`
 - `GET /runbook/alerts`
+- `GET /runbook/alerts/delivery`
+- `POST /runbook/alerts/test?channel=discord|telegram`
 - `GET /runbook/failures`
 - `POST /runbook/failures/{id}/retry`
 - `POST /runbook/failures/{id}/resolve`

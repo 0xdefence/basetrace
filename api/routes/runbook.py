@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from api.services.alert_service import get_thresholds, update_threshold
+from api.services.delivery_service import recent_deliveries, send_test_alert
 from api.services.runbook_service import (
     alerts_runbook,
     failures_runbook,
@@ -59,6 +60,19 @@ def runbook_threshold_update(
 ):
     row = update_threshold(rule_type, min_ratio, min_delta, min_count, cooldown_hours, enabled)
     return {"rule_type": rule_type, "config": row}
+
+
+@router.get('/alerts/delivery')
+def runbook_alerts_delivery(limit: int = 50, status: str | None = None):
+    return {"limit": limit, "status": status, "deliveries": recent_deliveries(limit=limit, status=status)}
+
+
+@router.post('/alerts/test')
+def runbook_alerts_test(channel: str = 'discord'):
+    try:
+        return {"ok": True, **send_test_alert(channel=channel)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/threshold-presets/{preset}")
