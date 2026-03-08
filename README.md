@@ -69,4 +69,8 @@ INGEST_REPLAY_MODE=1 docker compose up ingestor
 - `POST /alerts/{id}/resolve?assignee=<name>`
 
 ## Roadmap
-See `docs/roadmap.md` and `docs/architecture.md`.
+See `docs/roadmap.md`, `docs/roadmap_v2.md`, and `docs/architecture.md`.
+
+## Methodology / Benchmarks
+- `docs/methodology.md`
+- `docs/benchmark_cases.md`

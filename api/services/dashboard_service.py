@@ -76,15 +76,19 @@ def dashboard_summary(hot_limit: int = 5):
     top_addresses = [{"address": a, "count": int(c)} for a, c in top_addr_rows]
     hot_addresses = [{"address": a, "tx_count": int(c)} for a, c in hot_addr_rows]
 
+    queue_counts = queue.get("queue_counts") or {}
+    total_queue = queue_counts.get("new", 0) + queue_counts.get("ack", 0) + queue_counts.get("resolved", 0)
+    ack_rate = (queue_counts.get("ack", 0) + queue_counts.get("resolved", 0)) / total_queue if total_queue else 0.0
+
     return {
         "compact": {
             "ingest_lag_blocks": metrics.get("ingest_lag_blocks"),
             "tx_24h": metrics.get("tx_24h"),
             "transfers_24h": metrics.get("transfers_24h"),
             "alerts_24h": metrics.get("alerts_24h"),
-            "queue_new": (queue.get("queue_counts") or {}).get("new", 0),
-            "queue_ack": (queue.get("queue_counts") or {}).get("ack", 0),
-            "queue_resolved": (queue.get("queue_counts") or {}).get("resolved", 0),
+            "queue_new": queue_counts.get("new", 0),
+            "queue_ack": queue_counts.get("ack", 0),
+            "queue_resolved": queue_counts.get("resolved", 0),
             "backlog_pressure": queue.get("backlog_pressure"),
             "dead_letter_open": (failures.get("summary") or {}).get("open", 0),
         },
@@ -96,5 +100,17 @@ def dashboard_summary(hot_limit: int = 5):
             "top_alert_addresses_24h": top_addresses,
             "hot_alerts": hot_alerts,
             "hot_addresses": hot_addresses,
+            "kpis": {
+                "product": {
+                    "median_query_latency_ms": metrics.get("median_query_latency_ms"),
+                    "alerts_24h": metrics.get("alerts_24h"),
+                    "alert_acknowledged_rate": round(ack_rate, 4),
+                },
+                "gtm": {
+                    "waitlist_signups": None,
+                    "demos_booked": None,
+                    "weekly_returning_users": None,
+                },
+            },
         },
     }
